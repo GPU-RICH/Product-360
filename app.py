@@ -1,9 +1,9 @@
 import streamlit as st
 from typing import List, Dict, Any
 import asyncio
-from core import ChatConfig, ChatLogger, ChatMemory, QuestionGenerator, GeminiRAG, ProductDatabase
+from core import ChatConfig, ChatLogger, ChatMemory, ProductDatabase
 
-# Enhanced session state initialization
+# Initialize session state
 if 'chat_memory' not in st.session_state:
     st.session_state.chat_memory = ChatMemory()
 if 'messages' not in st.session_state:
@@ -20,7 +20,7 @@ if 'message_counter' not in st.session_state:
 if 'submitted_question' not in st.session_state:
     st.session_state.submitted_question = None
 
-# New user metadata session state
+# User metadata session state
 if 'user_metadata' not in st.session_state:
     st.session_state.user_metadata = {
         'product_name': 'GAPL Starter',
@@ -29,15 +29,6 @@ if 'user_metadata' not in st.session_state:
         'crop_name': None,
         'location': None
     }
-if 'metadata_collection_state' not in st.session_state:
-    st.session_state.metadata_collection_state = {
-        'mobile_collected': False,
-        'crop_collected': False,
-        'location_collected': False,
-        'purchase_collected': False
-    }
-if 'show_metadata_form' not in st.session_state:
-    st.session_state.show_metadata_form = False
 
 # Configure the page
 st.set_page_config(
@@ -155,10 +146,91 @@ def collect_user_metadata():
                 if all(st.session_state.metadata_collection_state.values()):
                     st.session_state.show_metadata_form = False
                     st.rerun()
+class EnhancedQuestionGenerator:
+    """Enhanced question generator that integrates metadata collection"""
+    def __init__(self, api_key: str):
+        genai.configure(api_key=api_key)
+        self.generation_config = {
+            "temperature": 0.2,
+            "top_p": 0.95,
+            "top_k": 64,
+            "max_output_tokens": 2048,
+        }
+        self.model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",
+            generation_config=self.generation_config
+        )
+        
+    async def generate_questions(self, question: str, answer: str) -> List[str]:
+        try:
+            metadata = st.session_state.user_metadata
+            chat = self.model.start_chat(history=[])
+            
+            # Determine which metadata question to ask based on what's missing
+            metadata_question = None
+            if not metadata['purchase_status'] and 'benefit' in question.lower():
+                metadata_question = "Have you already purchased GAPL Starter for your farm?"
+            elif not metadata['crop_name'] and ('crop' in question.lower() or 'apply' in question.lower()):
+                metadata_question = "Which crops are you currently growing or planning to use GAPL Starter with?"
+            elif not metadata['mobile_number'] and metadata['purchase_status']:
+                metadata_question = "To provide you with specific guidance, could you share your mobile number?"
+            elif not metadata['location'] and metadata['crop_name']:
+                metadata_question = "What's your location/pincode? This helps me provide region-specific recommendations."
 
+            prompt = f"""Based on this product information interaction:
+            
+            Question: {question}
+            Answer: {answer}
+            
+            Generate 3 relevant follow-up questions about GAPL Starter.
+            Focus on:
+            - Application methods and timing
+            - Benefits and effectiveness
+            - Compatibility with specific crops
+            - Scientific backing and results
+            
+            Return ONLY the numbered questions (1-3), one per line.
+            """
+            
+            response = chat.send_message(prompt).text
+            
+            questions = []
+            for line in response.split('\n'):
+                line = line.strip()
+                if line and any(line.startswith(f'{i}.') for i in range(1, 4)):
+                    questions.append(line.split('.', 1)[1].strip())
+            
+            # Add metadata question if applicable
+            if metadata_question and len(questions) > 0:
+                questions[-1] = metadata_question
+            
+            return questions[:3]
+            
+        except Exception as e:
+            logging.error(f"Error generating questions: {str(e)}")
+            return [
+                "How should I store GAPL Starter?",
+                "What results can I expect to see?",
+                "Could you share which crops you're growing?"
+            ]
 async def process_question(question: str):
-    """Enhanced question processing with metadata collection triggers"""
+    """Enhanced question processing with metadata collection"""
     try:
+        # Check if the question is answering a metadata question
+        metadata = st.session_state.user_metadata
+        
+        # Process metadata responses
+        question_lower = question.lower()
+        if "purchased" in question_lower or "bought" in question_lower:
+            metadata['purchase_status'] = question
+        elif any(crop in question_lower for crop in ['growing', 'farming', 'cultivating']):
+            metadata['crop_name'] = question
+        elif question.replace(" ", "").isdigit() and len(question.replace(" ", "")) == 10:
+            metadata['mobile_number'] = question.replace(" ", "")
+        elif any(loc in question_lower for loc in ['pincode', 'location', 'district', 'village']):
+            metadata['location'] = question
+        
+        # Regular question processing
         relevant_docs = db.search(question)
         context = rag.create_context(relevant_docs)
         answer = await rag.get_answer(question, context)
@@ -166,13 +238,6 @@ async def process_question(question: str):
         
         st.session_state.chat_memory.add_interaction(question, answer)
         logger.log_interaction(question, answer)
-        
-        # Trigger metadata collection based on message count or specific keywords
-        message_count = len(st.session_state.messages)
-        if (message_count == 2 and not st.session_state.metadata_collection_state['purchase_collected']) or \
-           (message_count == 4 and not st.session_state.metadata_collection_state['crop_collected']) or \
-           (message_count == 6 and not st.session_state.metadata_collection_state['location_collected']):
-            st.session_state.show_metadata_form = True
         
         st.session_state.message_counter += 1
         
@@ -190,6 +255,7 @@ async def process_question(question: str):
     except Exception as e:
         st.error(f"Error processing question: {str(e)}")
 
+
 def handle_submit():
     if st.session_state.user_input:
         st.session_state.submitted_question = st.session_state.user_input
@@ -197,8 +263,6 @@ def handle_submit():
 
 def main():
     st.title("🌱 GAPL Starter Product Assistant")
-
-    collect_user_metadata()
     
     # Welcome message
     if not st.session_state.messages:
@@ -241,16 +305,6 @@ def main():
                         use_container_width=True
                     ):
                         asyncio.run(process_question(question))
-
-
-    # Add metadata display in sidebar
-    with st.sidebar:
-        st.subheader("Session Information")
-        if any(st.session_state.user_metadata.values()):
-            st.write("Collected Information:")
-            for key, value in st.session_state.user_metadata.items():
-                if value:
-                    st.write(f"- {key.replace('_', ' ').title()}: {value}")
     
     # Input area
     with st.container():
@@ -261,19 +315,17 @@ def main():
             on_change=handle_submit
         )
         
-        # Process submitted question
         if st.session_state.submitted_question:
             asyncio.run(process_question(st.session_state.submitted_question))
             st.session_state.submitted_question = None
             st.rerun()
         
-        cols = st.columns([4, 1])
-        # Clear chat button
-        if cols[1].button("Clear Chat", use_container_width=True):
-            st.session_state.messages = []
-            st.session_state.chat_memory.clear_history()
-            st.session_state.message_counter = 0
-            st.rerun()
+        # Add small metadata display
+        if any(v for k, v in st.session_state.user_metadata.items() if k != 'product_name'):
+            with st.expander("Session Info"):
+                for key, value in st.session_state.user_metadata.items():
+                    if value and key != 'product_name':
+                        st.write(f"- {key.replace('_', ' ').title()}: {value}")
 
 if __name__ == "__main__":
     main()
