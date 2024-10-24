@@ -63,42 +63,52 @@ class QuestionGenerator:
     async def generate_questions(self, question: str, answer: str) -> List[str]:
         try:
             chat = self.model.start_chat(history=[])
-            prompt = f"""Based on this product information interaction:
             
+            # Check what metadata we're missing
+            metadata = st.session_state.user_metadata
+            missing_metadata = []
+            
+            if not metadata.get('mobile_number'):
+                missing_metadata.append("To provide you with personalized assistance, could you share your contact number?")
+            elif not metadata.get('crop_name'):
+                missing_metadata.append("Which crops are you currently growing or planning to use GAPL Starter for?")
+            elif not metadata.get('location'):
+                missing_metadata.append("What's your pincode/location for region-specific recommendations?")
+            
+            # Generate regular follow-up questions
+            prompt = f"""Based on this interaction about GAPL Starter:
             Question: {question}
             Answer: {answer}
             
-            Generate 4 relevant follow-up questions that a customer might ask about GAPL Starter.
-            Focus on:
-            - Application methods and timing
-            - Benefits and effectiveness
-            - Compatibility with specific crops
-            - Scientific backing and results
-            
-            Return ONLY the numbered questions (1-4), one per line.
+            Generate 2 relevant follow-up questions about GAPL Starter.
+            Focus on practical application, benefits, and results.
+            Return ONLY the questions, one per line.
             """
             
             response = chat.send_message(prompt).text
             
+            # Process generated questions
             questions = []
             for line in response.split('\n'):
                 line = line.strip()
-                if line and (line.startswith('1.') or line.startswith('2.') or 
-                           line.startswith('3.') or line.startswith('4.')):
-                    questions.append(line.split('.', 1)[1].strip())
+                if line and not line.startswith(('Question:', 'Answer:', '#', '-')):
+                    questions.append(line.rstrip('?') + '?')
             
-            while len(questions) < 4:
-                questions.append("Can you provide more details about GAPL Starter?")
+            # Take first 2 regular questions
+            questions = questions[:2]
             
-            return questions[:4]
+            # Add one metadata question if available
+            if missing_metadata:
+                questions.append(missing_metadata[0])
+            
+            return questions
             
         except Exception as e:
             logging.error(f"Error generating questions: {str(e)}")
             return [
-                "How should I store GAPL Starter?",
-                "Can I use it with other fertilizers?",
-                "What results can I expect to see?",
-                "Is it safe for all soil types?"
+                "How should I apply GAPL Starter?",
+                "What results can I expect?",
+                "Could you share your contact number for personalized assistance?"
             ]
 
 class GeminiRAG:
@@ -106,7 +116,7 @@ class GeminiRAG:
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
         self.generation_config = {
-            "temperature": 0.1,  # Slightly reduced for more consistent tone
+            "temperature": 0.1,
             "top_p": 0.95,
             "top_k": 64,
             "max_output_tokens": 8192,
@@ -116,13 +126,31 @@ class GeminiRAG:
             generation_config=self.generation_config
         )
         
-    def create_context(self, relevant_docs: List[Dict[str, Any]]) -> str:
-        """Creates a context string from relevant documents"""
-        return "\n\n".join(doc['content'] for doc in relevant_docs)
-        
     async def get_answer(self, question: str, context: str) -> str:
         try:
             chat = self.model.start_chat(history=[])
+            
+            # Check if this is a metadata response
+            question_lower = question.lower().strip()
+            metadata = st.session_state.user_metadata
+            
+            # Handle mobile number
+            if question_lower.replace(" ", "").isdigit() and len(question_lower.replace(" ", "")) == 10:
+                metadata['mobile_number'] = question_lower.replace(" ", "")
+                return "Thank you for sharing your contact number. How else can I assist you with GAPL Starter?"
+                
+            # Handle crop information
+            if any(word in question_lower for word in ['growing', 'cultivating', 'farming', 'crop']):
+                if len(question_lower.split()) <= 10:  # Basic check to ensure it's a crop response
+                    metadata['crop_name'] = question
+                    return f"Great! I understand you're working with {question}. GAPL Starter has shown excellent results with this crop. What else would you like to know about its application?"
+            
+            # Handle location
+            if any(word in question_lower for word in ['pincode', 'location', 'district', 'village']):
+                metadata['location'] = question
+                return "Thank you for sharing your location. This will help me provide more relevant recommendations. What specific information about GAPL Starter would you like?"
+            
+            # Regular question handling
             prompt = f"""You are an expert agricultural consultant specializing in GAPL Starter bio-fertilizer. 
             You have extensive hands-on experience with the product and deep knowledge of its applications and benefits.
             
@@ -132,18 +160,7 @@ class GeminiRAG:
             Question from farmer: {question}
 
             Respond naturally as an expert would, without referencing any "provided information" or documentation.
-            Your response should be:
-            - Confident and authoritative
-            - Direct and practical
-            - Focused on helping farmers succeed
-            - Based on product expertise
-
-            If you don't have enough specific information to answer the question, say something like:
-            "As an expert on GAPL Starter, I should note that while the product has broad applications, 
-            I'd need to check the specific details about [missing information] to give you the most accurate guidance. 
-            What I can tell you is..."
-
-            Remember to maintain a helpful, expert tone throughout your response.
+            Keep responses concise but informative.
             """
             
             response = chat.send_message(prompt)
