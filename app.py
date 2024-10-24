@@ -3,7 +3,7 @@ from typing import List, Dict, Any
 import asyncio
 from core import ChatConfig, ChatLogger, ChatMemory, QuestionGenerator, GeminiRAG, ProductDatabase
 
-# Initialize session state
+# Enhanced session state initialization
 if 'chat_memory' not in st.session_state:
     st.session_state.chat_memory = ChatMemory()
 if 'messages' not in st.session_state:
@@ -19,14 +19,25 @@ if 'message_counter' not in st.session_state:
     st.session_state.message_counter = 0
 if 'submitted_question' not in st.session_state:
     st.session_state.submitted_question = None
+
+# New user metadata session state
 if 'user_metadata' not in st.session_state:
     st.session_state.user_metadata = {
         'product_name': 'GAPL Starter',
+        'purchase_status': None,
         'mobile_number': None,
         'crop_name': None,
         'location': None
     }
-
+if 'metadata_collection_state' not in st.session_state:
+    st.session_state.metadata_collection_state = {
+        'mobile_collected': False,
+        'crop_collected': False,
+        'location_collected': False,
+        'purchase_collected': False
+    }
+if 'show_metadata_form' not in st.session_state:
+    st.session_state.show_metadata_form = False
 # Configure the page
 st.set_page_config(
     page_title="GAPL Starter Assistant",
@@ -100,7 +111,63 @@ def handle_submit():
         st.session_state.submitted_question = st.session_state.user_input
         st.session_state.user_input = ""
 
+def collect_user_metadata():
+    """Displays and handles the metadata collection form"""
+    if st.session_state.show_metadata_form:
+        with st.form("metadata_form"):
+            st.write("Please help us serve you better by providing some information:")
+            
+            if not st.session_state.metadata_collection_state['purchase_collected']:
+                purchase_status = st.radio(
+                    "Have you purchased GAPL Starter before?",
+                    ['Yes', 'No', 'Planning to purchase']
+                )
+            
+            if not st.session_state.metadata_collection_state['mobile_collected']:
+                mobile = st.text_input(
+                    "Your mobile number:",
+                    max_chars=10
+                )
+            
+            if not st.session_state.metadata_collection_state['crop_collected']:
+                crop = st.text_input(
+                    "Which crop are you growing/planning to use GAPL Starter for?"
+                )
+            
+            if not st.session_state.metadata_collection_state['location_collected']:
+                location = st.text_input(
+                    "Your pincode/location:"
+                )
+            
+            submitted = st.form_submit_button("Submit")
+            
+            if submitted:
+                if not st.session_state.metadata_collection_state['purchase_collected']:
+                    st.session_state.user_metadata['purchase_status'] = purchase_status
+                    st.session_state.metadata_collection_state['purchase_collected'] = True
+                
+                if not st.session_state.metadata_collection_state['mobile_collected'] and mobile:
+                    if len(mobile) == 10 and mobile.isdigit():
+                        st.session_state.user_metadata['mobile_number'] = mobile
+                        st.session_state.metadata_collection_state['mobile_collected'] = True
+                    else:
+                        st.error("Please enter a valid 10-digit mobile number")
+                
+                if not st.session_state.metadata_collection_state['crop_collected'] and crop:
+                    st.session_state.user_metadata['crop_name'] = crop
+                    st.session_state.metadata_collection_state['crop_collected'] = True
+                
+                if not st.session_state.metadata_collection_state['location_collected'] and location:
+                    st.session_state.user_metadata['location'] = location
+                    st.session_state.metadata_collection_state['location_collected'] = True
+                
+                # Check if all metadata is collected
+                if all(st.session_state.metadata_collection_state.values()):
+                    st.session_state.show_metadata_form = False
+                    st.rerun()
+                    
 async def process_question(question: str):
+    """Enhanced question processing with metadata collection triggers"""
     try:
         relevant_docs = db.search(question)
         context = rag.create_context(relevant_docs)
@@ -110,15 +177,14 @@ async def process_question(question: str):
         st.session_state.chat_memory.add_interaction(question, answer)
         logger.log_interaction(question, answer)
         
-        st.session_state.message_counter += 1
+        # Trigger metadata collection based on message count or specific keywords
+        message_count = len(st.session_state.messages)
+        if (message_count == 2 and not st.session_state.metadata_collection_state['purchase_collected']) or \
+           (message_count == 4 and not st.session_state.metadata_collection_state['crop_collected']) or \
+           (message_count == 6 and not st.session_state.metadata_collection_state['location_collected']):
+            st.session_state.show_metadata_form = True
         
-        # Log metadata updates
-        if any(new_value != st.session_state.user_metadata[key] 
-               for key, new_value in st.session_state.user_metadata.items()):
-            logger.log_interaction(
-                "Metadata Update",
-                f"Updated user metadata: {str(st.session_state.user_metadata)}"
-            )
+        st.session_state.message_counter += 1
         
         st.session_state.messages.append({
             "role": "user",
