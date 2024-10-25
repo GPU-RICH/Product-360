@@ -46,7 +46,7 @@ class ChatMemory:
         self.history = []
 
 class QuestionGenerator:
-    """Generates follow-up questions using Gemini"""
+    """Generates follow-up questions using Gemini with prioritized metadata collection"""
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
         self.generation_config = {
@@ -63,45 +63,57 @@ class QuestionGenerator:
     async def generate_questions(self, question: str, answer: str) -> List[str]:
         try:
             chat = self.model.start_chat(history=[])
-            
-            # Check what metadata we're missing
             metadata = st.session_state.user_metadata
-            missing_metadata = []
+            message_count = st.session_state.message_counter
             
-            if not metadata.get('mobile_number'):
-                missing_metadata.append("To provide you with personalized assistance, could you share your contact number?")
-            elif not metadata.get('crop_name'):
-                missing_metadata.append("Which crops are you currently growing or planning to use GAPL Starter for?")
-            elif not metadata.get('location'):
-                missing_metadata.append("What's your pincode/location for region-specific recommendations?")
+            # Prioritize metadata collection in first 3 interactions
+            if message_count < 3:
+                missing_metadata = []
+                if not metadata.get('mobile_number'):
+                    missing_metadata.append("To provide personalized assistance, could you share your contact number?")
+                if not metadata.get('crop_name'):
+                    missing_metadata.append("Which crops are you currently growing or planning to use GAPL Starter for?")
+                if not metadata.get('location'):
+                    missing_metadata.append("What's your pincode/location for region-specific recommendations?")
+                
+                if missing_metadata:
+                    # For first interaction, return 1 product question and 2 metadata questions
+                    if message_count == 0:
+                        prompt = f"""Based on this interaction about GAPL Starter:
+                        Question: {question}
+                        Answer: {answer}
+                        Generate 1 relevant follow-up question about GAPL Starter's benefits or application.
+                        Return ONLY the question, without any prefixes."""
+                        
+                        response = chat.send_message(prompt).text.strip()
+                        questions = [response.rstrip('?') + '?']
+                        questions.extend(missing_metadata[:2])
+                        return questions
+                    
+                    # For next interactions, include at least one metadata question
+                    prompt = f"""Based on this interaction about GAPL Starter:
+                    Question: {question}
+                    Answer: {answer}
+                    Generate 2 relevant follow-up questions about GAPL Starter.
+                    Focus on practical application and benefits.
+                    Return ONLY the questions, one per line."""
+                    
+                    response = chat.send_message(prompt).text
+                    questions = [q.strip().rstrip('?') + '?' for q in response.split('\n') if q.strip()][:2]
+                    questions.append(missing_metadata[0])
+                    return questions
             
-            # Generate regular follow-up questions
+            # Regular question generation after metadata collection
             prompt = f"""Based on this interaction about GAPL Starter:
             Question: {question}
             Answer: {answer}
-            
-            Generate 2 relevant follow-up questions about GAPL Starter.
+            Generate 3 relevant follow-up questions about GAPL Starter.
             Focus on practical application, benefits, and results.
-            Return ONLY the questions, one per line.
-            """
+            Return ONLY the questions, one per line."""
             
             response = chat.send_message(prompt).text
-            
-            # Process generated questions
-            questions = []
-            for line in response.split('\n'):
-                line = line.strip()
-                if line and not line.startswith(('Question:', 'Answer:', '#', '-')):
-                    questions.append(line.rstrip('?') + '?')
-            
-            # Take first 2 regular questions
-            questions = questions[:2]
-            
-            # Add one metadata question if available
-            if missing_metadata:
-                questions.append(missing_metadata[0])
-            
-            return questions
+            questions = [q.strip().rstrip('?') + '?' for q in response.split('\n') if q.strip()]
+            return questions[:3]
             
         except Exception as e:
             logging.error(f"Error generating questions: {str(e)}")
@@ -112,7 +124,7 @@ class QuestionGenerator:
             ]
 
 class GeminiRAG:
-    """RAG implementation using Gemini"""
+    """RAG implementation using Gemini with enhanced metadata handling"""
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
         self.generation_config = {
@@ -126,42 +138,48 @@ class GeminiRAG:
             generation_config=self.generation_config
         )
         
+    def _process_metadata_response(self, question: str) -> Optional[str]:
+        """Process and store metadata responses"""
+        question_lower = question.lower().strip()
+        metadata = st.session_state.user_metadata
+        
+        # Handle mobile number
+        if question_lower.replace(" ", "").isdigit() and len(question_lower.replace(" ", "")) == 10:
+            metadata['mobile_number'] = question_lower.replace(" ", "")
+            return "Thank you for sharing your contact number. I'll ensure you receive personalized assistance for GAPL Starter. What would you like to know about its application?"
+        
+        # Handle crop information
+        crop_keywords = ['growing', 'cultivating', 'farming', 'crop']
+        if any(word in question_lower for word in crop_keywords) or len(question_lower.split()) <= 4:
+            metadata['crop_name'] = question
+            return f"Excellent! GAPL Starter has shown great results with {question}. Let me provide you with specific recommendations for your crop. Would you mind sharing your location for region-specific advice?"
+        
+        # Handle location
+        location_keywords = ['pincode', 'location', 'district', 'village']
+        if any(word in question_lower for word in location_keywords) or question_lower.isdigit():
+            metadata['location'] = question
+            return f"Thank you for sharing your location. I can now provide recommendations tailored to your region's conditions. What specific aspect of GAPL Starter would you like to know about?"
+        
+        return None
+        
     async def get_answer(self, question: str, context: str) -> str:
         try:
+            # First check if this is a metadata response
+            metadata_response = self._process_metadata_response(question)
+            if metadata_response:
+                return metadata_response
+            
             chat = self.model.start_chat(history=[])
-            
-            # Check if this is a metadata response
-            question_lower = question.lower().strip()
-            metadata = st.session_state.user_metadata
-            
-            # Handle mobile number
-            if question_lower.replace(" ", "").isdigit() and len(question_lower.replace(" ", "")) == 10:
-                metadata['mobile_number'] = question_lower.replace(" ", "")
-                return "Thank you for sharing your contact number. How else can I assist you with GAPL Starter?"
-                
-            # Handle crop information
-            if any(word in question_lower for word in ['growing', 'cultivating', 'farming', 'crop']):
-                if len(question_lower.split()) <= 10:  # Basic check to ensure it's a crop response
-                    metadata['crop_name'] = question
-                    return f"Great! I understand you're working with {question}. GAPL Starter has shown excellent results with this crop. What else would you like to know about its application?"
-            
-            # Handle location
-            if any(word in question_lower for word in ['pincode', 'location', 'district', 'village']):
-                metadata['location'] = question
-                return "Thank you for sharing your location. This will help me provide more relevant recommendations. What specific information about GAPL Starter would you like?"
-            
-            # Regular question handling
             prompt = f"""You are an expert agricultural consultant specializing in GAPL Starter bio-fertilizer. 
             You have extensive hands-on experience with the product and deep knowledge of its applications and benefits.
             
-            Background information to inform your response:
+            Background information:
             {context}
 
             Question from farmer: {question}
 
-            Respond naturally as an expert would, without referencing any "provided information" or documentation.
-            Keep responses concise but informative.
-            """
+            Respond naturally as an expert would, keeping responses concise but informative. If you know the farmer's crop type
+            from the metadata, include specific advice for that crop."""
             
             response = chat.send_message(prompt)
             return response.text
