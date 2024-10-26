@@ -1,4 +1,3 @@
-#CORE.PY
 import os
 import logging
 from typing import List, Dict, Any, Optional
@@ -10,6 +9,9 @@ from langchain_core.embeddings import Embeddings
 import google.generativeai as genai
 from datetime import datetime
 from enum import Enum
+import json
+from pathlib import Path
+import tempfile
 
 class Language(Enum):
     HINDI = "hindi"
@@ -17,96 +19,91 @@ class Language(Enum):
 
 @dataclass
 class CustomerInfo:
-    """Customer information storage"""
     mobile: str
     location: str
     purchase_status: str
     crop_type: str
     name: Optional[str] = None
+    data_collection_complete: bool = False
 
+class DataCollectionState:
+    def __init__(self):
+        self.current_question_index = 0
+        self.collected_data = {}
+        self.questions = {
+            Language.HINDI: [
+                "आपका मोबाइल नंबर क्या है?",
+                "आप कहाँ से हैं?",
+                "क्या आपने GAPL Starter खरीदा है?",
+                "आप किस फसल के लिए इसका उपयोग करना चाहते हैं?",
+                "आपका नाम क्या है? (वैकल्पिक)"
+            ],
+            Language.ENGLISH: [
+                "What is your mobile number?",
+                "Where are you from?",
+                "Have you purchased GAPL Starter?",
+                "Which crop do you want to use it for?",
+                "What is your name? (optional)"
+            ]
+        }
+        self.fields = ['mobile', 'location', 'purchase_status', 'crop_type', 'name']
 
-import os
-import json
-from pathlib import Path
-from typing import Optional, Dict, Any
-import tempfile
+    def get_next_question(self, language: Language) -> Optional[str]:
+        if self.current_question_index < len(self.questions[language]):
+            return self.questions[language][self.current_question_index]
+        return None
+
+    def store_answer(self, answer: str) -> None:
+        field = self.fields[self.current_question_index]
+        self.collected_data[field] = answer
+        self.current_question_index += 1
+
+    def is_complete(self) -> bool:
+        return self.current_question_index >= len(self.fields) - 1  # -1 because name is optional
 
 class CustomerDatabase:
-    """Handles customer information storage in JSON"""
     def __init__(self, file_path: str = None):
         if file_path is None:
-            # Use system temp directory if no path provided
             temp_dir = tempfile.gettempdir()
             self.file_path = Path(temp_dir) / "customer_data.json"
         else:
             self.file_path = Path(file_path)
-            
-        # Create parent directories if they don't exist
+        
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_file_exists()
     
     def _ensure_file_exists(self):
-        """Create the JSON file if it doesn't exist"""
-        try:
-            if not self.file_path.exists():
-                self.file_path.write_text("{}", encoding="utf-8")
-        except Exception as e:
-            logging.error(f"Error creating file: {str(e)}")
-            # Use memory-only fallback if file operations fail
-            self._data = {}
-            self._use_memory = True
+        if not self.file_path.exists():
+            self.file_path.write_text("{}", encoding="utf-8")
     
     def save_customer(self, customer_info: CustomerInfo) -> None:
-        """Save customer information to JSON file"""
-        try:
-            # Read existing data
-            data = self._read_data()
-            
-            # Update with new customer info
-            data[customer_info.mobile] = {
-                "location": customer_info.location,
-                "purchase_status": customer_info.purchase_status,
-                "crop_type": customer_info.crop_type,
-                "name": customer_info.name,
-                "last_updated": datetime.now().isoformat()
-            }
-            
-            # Write back to file
-            try:
-                with self.file_path.open("w", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False, indent=4)
-            except Exception as e:
-                logging.error(f"Error writing to file: {str(e)}")
-                self._data = data  # Store in memory if file write fails
-                self._use_memory = True
-                
-        except Exception as e:
-            logging.error(f"Error saving customer data: {str(e)}")
-            raise
-    
+        data = self._read_data()
+        data[customer_info.mobile] = {
+            "location": customer_info.location,
+            "purchase_status": customer_info.purchase_status,
+            "crop_type": customer_info.crop_type,
+            "name": customer_info.name,
+            "data_collection_complete": customer_info.data_collection_complete,
+            "last_updated": datetime.now().isoformat()
+        }
+        with self.file_path.open("w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+
     def get_customer(self, mobile: str) -> Optional[CustomerInfo]:
-        """Retrieve customer information by mobile number"""
-        try:
-            data = self._read_data()
-            if mobile in data:
-                customer_data = data[mobile]
-                return CustomerInfo(
-                    mobile=mobile,
-                    location=customer_data["location"],
-                    purchase_status=customer_data["purchase_status"],
-                    crop_type=customer_data["crop_type"],
-                    name=customer_data.get("name")
-                )
-            return None
-        except Exception as e:
-            logging.error(f"Error retrieving customer data: {str(e)}")
-            return None
-    
+        data = self._read_data()
+        if mobile in data:
+            customer_data = data[mobile]
+            return CustomerInfo(
+                mobile=mobile,
+                location=customer_data["location"],
+                purchase_status=customer_data["purchase_status"],
+                crop_type=customer_data["crop_type"],
+                name=customer_data.get("name"),
+                data_collection_complete=customer_data.get("data_collection_complete", False)
+            )
+        return None
+
     def _read_data(self) -> Dict[str, Any]:
-        """Read the JSON file or return in-memory data"""
-        if hasattr(self, '_use_memory') and self._use_memory:
-            return getattr(self, '_data', {})
-            
         try:
             with self.file_path.open("r", encoding="utf-8") as f:
                 return json.load(f)
@@ -114,52 +111,53 @@ class CustomerDatabase:
             logging.error(f"Error reading customer data: {str(e)}")
             return {}
 
-    def customer_exists(self, mobile: str) -> bool:
-        """Check if a customer exists in the database"""
-        data = self._read_data()
-        return mobile in data
-        
+class ResponseParser:
+    def __init__(self, api_key: str):
+        genai.configure(api_key=api_key)
+        self.model = genai.GenerativeModel("gemini-1.0-pro")
+
+    async def parse_user_response(self, question: str, answer: str, field: str) -> tuple[bool, str]:
+        prompt = f"""
+        Question asked to user: {question}
+        User's response: {answer}
+        Field being collected: {field}
+
+        Task: Analyze if the response is valid for the requested field and extract the relevant information.
+
+        Rules for validation:
+        - For mobile: Must be 10 digits
+        - For location: Should be a place name
+        - For purchase_status: Should indicate yes/no
+        - For crop_type: Should be a valid crop name
+        - For name: Any reasonable name is valid
+
+        Return response in format:
+        VALID: true/false
+        EXTRACTED: <extracted_value>
+        REASON: <reason for validation result>
+        """
+
+        response = self.model.generate_content(prompt)
+        response_text = response.text
+
+        try:
+            lines = response_text.strip().split('\n')
+            is_valid = 'VALID: true' in lines[0].lower()
+            extracted = lines[1].split('EXTRACTED:')[1].strip()
+            return is_valid, extracted
+        except Exception as e:
+            logging.error(f"Error parsing response: {str(e)}")
+            return False, ""
+
 @dataclass
 class ChatConfig:
-    """Configuration for the chatbot"""
     embedding_model_name: str = 'all-MiniLM-L6-v2'
     device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
     max_history: int = 3
-    gemini_api_key: str = "AIzaSyBS_DFCJh82voYIKoglS-ow6ezGNg775pg"
+    gemini_api_key: str = "YOUR_API_KEY"
     log_file: str = "chat_history.txt"
-    
-    # Bilingual greeting messages
-    greetings = {
-        Language.HINDI: """
-        नमस्ते! मैं GAPL Starter प्रोडक्ट असिस्टेंट हूं। 
-        कृपया निम्नलिखित जानकारी साझा करें:
-        """,
-        Language.ENGLISH: """
-        Hello! I'm the GAPL Starter Product Assistant.
-        Please share the following information:
-        """
-    }
-    
-    # Required customer information prompts
-    customer_info_prompts = {
-        Language.HINDI: {
-            "mobile": "आपका मोबाइल नंबर क्या है?",
-            "location": "आप कहाँ से हैं?",
-            "purchase_status": "क्या आपने GAPL Starter खरीदा है?",
-            "crop_type": "आप किस फसल के लिए इसका उपयोग करना चाहते हैं?",
-            "name": "आपका नाम क्या है? (वैकल्पिक)"
-        },
-        Language.ENGLISH: {
-            "mobile": "What is your mobile number?",
-            "location": "Where are you from?",
-            "purchase_status": "Have you purchased GAPL Starter?",
-            "crop_type": "Which crop do you want to use it for?",
-            "name": "What is your name? (optional)"
-        }
-    }
 
 class ChatLogger:
-    """Logger for chat interactions"""
     def __init__(self, log_file: str):
         self.log_file = log_file
         
@@ -169,12 +167,12 @@ class ChatLogger:
             f.write(f"\n[{timestamp}]\nCustomer: {customer_info.mobile}\nQ: {question}\nA: {answer}\n{'-'*50}")
 
 class ChatMemory:
-    """Manages chat history"""
     def __init__(self, max_history: int = 3):
         self.max_history = max_history
         self.history = []
         self.customer_info: Optional[CustomerInfo] = None
-        self.language = Language.HINDI  # Default language
+        self.language = Language.HINDI
+        self.data_collection_state = DataCollectionState()
         
     def set_customer_info(self, customer_info: CustomerInfo):
         self.customer_info = customer_info
@@ -193,6 +191,7 @@ class ChatMemory:
     def clear_history(self):
         self.history = []
         self.customer_info = None
+        self.data_collection_state = DataCollectionState()
 
 class QuestionGenerator:
     """Generates follow-up questions using Gemini"""
