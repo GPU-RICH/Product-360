@@ -1,7 +1,7 @@
 import streamlit as st
 from typing import List, Dict, Any
 import asyncio
-from core import ChatConfig, ChatLogger, ChatMemory, QuestionGenerator, GeminiRAG, ProductDatabase, Language, CustomerInfo
+from core import ChatConfig, ChatLogger, ChatMemory, QuestionGenerator, GeminiRAG, ProductDatabase, Language, CustomerInfo, CustomerDatabase
 
 # Initialize session state
 if 'chat_memory' not in st.session_state:
@@ -16,6 +16,8 @@ if 'message_counter' not in st.session_state:
     st.session_state.message_counter = 0
 if 'submitted_question' not in st.session_state:
     st.session_state.submitted_question = None
+if 'customer_db' not in st.session_state:
+    st.session_state.customer_db = CustomerDatabase()
 if 'initial_questions' not in st.session_state:
     st.session_state.initial_questions = {
         Language.HINDI: [
@@ -111,21 +113,31 @@ def collect_customer_info():
             config.customer_info_prompts[st.session_state.language]["mobile"],
             key="mobile"
         )
+        
+        # If mobile exists, try to pre-fill the form
+        existing_customer = None
+        if mobile and validate_mobile(mobile):
+            existing_customer = st.session_state.customer_db.get_customer(mobile)
+        
         location = st.text_input(
             config.customer_info_prompts[st.session_state.language]["location"],
-            key="location"
+            key="location",
+            value=existing_customer.location if existing_customer else ""
         )
         purchase_status = st.selectbox(
             config.customer_info_prompts[st.session_state.language]["purchase_status"],
-            ["हाँ", "नहीं"] if st.session_state.language == Language.HINDI else ["Yes", "No"]
+            ["हाँ", "नहीं"] if st.session_state.language == Language.HINDI else ["Yes", "No"],
+            index=0 if existing_customer and existing_customer.purchase_status in ["हाँ", "Yes"] else 1
         )
         crop_type = st.text_input(
             config.customer_info_prompts[st.session_state.language]["crop_type"],
-            key="crop_type"
+            key="crop_type",
+            value=existing_customer.crop_type if existing_customer else ""
         )
         name = st.text_input(
             config.customer_info_prompts[st.session_state.language]["name"],
-            key="name"
+            key="name",
+            value=existing_customer.name if existing_customer else ""
         )
         
         submit_button = st.form_submit_button(
@@ -149,6 +161,7 @@ def collect_customer_info():
                 )
                 return False
             
+            # Create customer info object
             customer_info = CustomerInfo(
                 mobile=mobile,
                 location=location,
@@ -156,11 +169,28 @@ def collect_customer_info():
                 crop_type=crop_type,
                 name=name if name else None
             )
-            st.session_state.chat_memory.set_customer_info(customer_info)
-            return True
+            
+            # Save to JSON database
+            try:
+                st.session_state.customer_db.save_customer(customer_info)
+                st.session_state.chat_memory.set_customer_info(customer_info)
+                
+                # Show success message
+                st.success(
+                    "जानकारी सफलतापूर्वक सहेजी गई" 
+                    if st.session_state.language == Language.HINDI 
+                    else "Information saved successfully"
+                )
+                return True
+            except Exception as e:
+                st.error(
+                    "जानकारी सहेजने में त्रुटि हुई" 
+                    if st.session_state.language == Language.HINDI 
+                    else "Error saving information"
+                )
+                return False
     
     return False
-
 async def process_question(question: str):
     try:
         relevant_docs = db.search(question)
@@ -204,7 +234,33 @@ def handle_submit():
     if st.session_state.user_input:
         st.session_state.submitted_question = st.session_state.user_input
         st.session_state.user_input = ""
-
+        
+def check_returning_customer():
+    if not st.session_state.customer_verified:
+        mobile = st.text_input(
+            "अपना मोबाइल नंबर दर्ज करें" if st.session_state.language == Language.HINDI 
+            else "Enter your mobile number"
+        )
+        
+        if mobile and validate_mobile(mobile):
+            existing_customer = st.session_state.customer_db.get_customer(mobile)
+            if existing_customer:
+                if st.button(
+                    "पिछली जानकारी का उपयोग करें" if st.session_state.language == Language.HINDI 
+                    else "Use previous information"
+                ):
+                    st.session_state.chat_memory.set_customer_info(existing_customer)
+                    st.session_state.customer_verified = True
+                    st.rerun()
+                
+                if st.button(
+                    "नई जानकारी दर्ज करें" if st.session_state.language == Language.HINDI 
+                    else "Enter new information"
+                ):
+                    return False
+                return True
+    return False
+    
 def main():
     # Language toggle
     col1, col2 = st.columns([4, 1])
@@ -227,9 +283,10 @@ def main():
     
     # Collect customer information if not already verified
     if not st.session_state.customer_verified:
-        if collect_customer_info():
-            st.session_state.customer_verified = True
-            st.rerun()
+        if not check_returning_customer():
+            if collect_customer_info():
+                st.session_state.customer_verified = True
+                st.rerun()
         return
     
     # Display customer info
