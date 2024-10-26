@@ -1,7 +1,17 @@
 import streamlit as st
 from typing import List, Dict, Any
 import asyncio
-from core import ChatConfig, ChatLogger, ChatMemory, QuestionGenerator, GeminiRAG, ProductDatabase, Language
+from core import (
+    ChatConfig, 
+    ChatLogger, 
+    ChatMemory, 
+    QuestionGenerator, 
+    GeminiRAG, 
+    ProductDatabase, 
+    Language,
+    UserManager,
+    UserInfo
+)
 
 # UI Text translations
 UI_TEXT = {
@@ -21,6 +31,16 @@ UI_TEXT = {
         "input_label": "Ask me anything about GAPL Starter:",
         "clear_chat": "Clear Chat",
         "language_selector": "Select Language",
+        "sidebar_title": "User Information",
+        "form_name": "Your Name",
+        "form_mobile": "Mobile Number",
+        "form_location": "Location",
+        "form_purchase": "Have you purchased GAPL Starter?",
+        "form_crop": "What crop are you growing?",
+        "form_submit": "Save Information",
+        "form_success": "✅ Information saved successfully!",
+        "form_error": "❌ Error saving information. Please try again.",
+        "form_required": "Please fill in all required fields.",
         "initial_questions": [
             "What are the main benefits of GAPL Starter?",
             "How do I apply GAPL Starter correctly?",
@@ -44,6 +64,16 @@ UI_TEXT = {
         "input_label": "GAPL स्टार्टर के बारे में कुछ भी पूछें:",
         "clear_chat": "चैट साफ़ करें",
         "language_selector": "भाषा चुनें",
+        "sidebar_title": "उपयोगकर्ता जानकारी",
+        "form_name": "आपका नाम",
+        "form_mobile": "मोबाइल नंबर",
+        "form_location": "स्थान",
+        "form_purchase": "क्या आपने GAPL स्टार्टर खरीदा है?",
+        "form_crop": "आप कौन सी फसल उगा रहे हैं?",
+        "form_submit": "जानकारी सहेजें",
+        "form_success": "✅ जानकारी सफलतापूर्वक सहेजी गई!",
+        "form_error": "❌ जानकारी सहेजने में त्रुटि। कृपया पुनः प्रयास करें।",
+        "form_required": "कृपया सभी आवश्यक फ़ील्ड भरें।",
         "initial_questions": [
             "GAPL स्टार्टर के मुख्य लाभ क्या हैं?",
             "GAPL स्टार्टर का प्रयोग कैसे करें?",
@@ -64,6 +94,8 @@ if 'submitted_question' not in st.session_state:
     st.session_state.submitted_question = None
 if 'language' not in st.session_state:
     st.session_state.language = Language.ENGLISH
+if 'user_info' not in st.session_state:
+    st.session_state.user_info = None
 
 # Configure the page
 st.set_page_config(
@@ -117,9 +149,10 @@ def initialize_components():
     question_gen = QuestionGenerator(config.gemini_api_key)
     rag = GeminiRAG(config.gemini_api_key)
     db = ProductDatabase(config)
-    return config, logger, question_gen, rag, db
+    user_manager = UserManager(config.user_data_file)
+    return config, logger, question_gen, rag, db, user_manager
 
-config, logger, question_gen, rag, db = initialize_components()
+config, logger, question_gen, rag, db, user_manager = initialize_components()
 
 # Load product database
 @st.cache_resource
@@ -137,15 +170,26 @@ async def process_question(question: str):
     try:
         relevant_docs = db.search(question)
         context = rag.create_context(relevant_docs)
-        answer = await rag.get_answer(question, context, st.session_state.language)
+        answer = await rag.get_answer(
+            question, 
+            context, 
+            st.session_state.language,
+            st.session_state.user_info
+        )
         follow_up_questions = await question_gen.generate_questions(
             question, 
             answer, 
-            st.session_state.language
+            st.session_state.language,
+            st.session_state.user_info
         )
         
         st.session_state.chat_memory.add_interaction(question, answer)
-        logger.log_interaction(question, answer, st.session_state.language)
+        logger.log_interaction(
+            question, 
+            answer, 
+            st.session_state.language,
+            st.session_state.user_info
+        )
         
         st.session_state.message_counter += 1
         
@@ -175,6 +219,39 @@ def handle_language_change():
     st.session_state.message_counter = 0
     st.rerun()
 
+def render_user_form():
+    """Render the user information form in the sidebar"""
+    current_text = UI_TEXT[st.session_state.language]
+    
+    st.sidebar.title(current_text["sidebar_title"])
+    
+    with st.sidebar.form("user_info_form"):
+        name = st.text_input(current_text["form_name"])
+        mobile = st.text_input(current_text["form_mobile"])
+        location = st.text_input(current_text["form_location"])
+        has_purchased = st.checkbox(current_text["form_purchase"])
+        crop_type = st.text_input(current_text["form_crop"])
+        
+        submitted = st.form_submit_button(current_text["form_submit"])
+        
+        if submitted:
+            if name and mobile and location and crop_type:
+                user_info = UserInfo(
+                    name=name,
+                    mobile=mobile,
+                    location=location,
+                    has_purchased=has_purchased,
+                    crop_type=crop_type
+                )
+                
+                if user_manager.save_user_info(user_info):
+                    st.session_state.user_info = user_info
+                    st.sidebar.success(current_text["form_success"])
+                else:
+                    st.sidebar.error(current_text["form_error"])
+            else:
+                st.sidebar.warning(current_text["form_required"])
+
 def main():
     # Language selector
     with st.container():
@@ -189,6 +266,9 @@ def main():
                 on_change=handle_language_change
             )
             st.session_state.language = selected_language
+
+    # Render user form in sidebar
+    render_user_form()
 
     current_text = UI_TEXT[st.session_state.language]
     
