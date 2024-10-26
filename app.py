@@ -116,91 +116,122 @@ def validate_mobile(mobile: str) -> bool:
     return mobile.isdigit() and len(mobile) == 10
 
 def collect_customer_info():
-    st.markdown(f"### {config.greetings[st.session_state.language]}")
+    # Display greeting based on language
+    greeting = {
+        Language.HINDI: """### नमस्ते! मैं GAPL Starter प्रोडक्ट असिस्टेंट हूं। 
+        कृपया निम्नलिखित जानकारी साझा करें:""",
+        Language.ENGLISH: """### Hello! I'm the GAPL Starter Product Assistant.
+        Please share the following information:"""
+    }
     
+    st.markdown(greeting[st.session_state.language])
+    
+    # Customer info form
     with st.form("customer_info_form"):
-        mobile = st.text_input(
-            config.customer_info_prompts[st.session_state.language]["mobile"],
-            key="mobile"
-        )
+        # Field labels based on language
+        labels = {
+            Language.HINDI: {
+                "mobile": "आपका मोबाइल नंबर क्या है?",
+                "location": "आप कहाँ से हैं?",
+                "purchase_status": "क्या आपने GAPL Starter खरीदा है?",
+                "crop_type": "आप किस फसल के लिए इसका उपयोग करना चाहते हैं?",
+                "name": "आपका नाम क्या है? (वैकल्पिक)"
+            },
+            Language.ENGLISH: {
+                "mobile": "What is your mobile number?",
+                "location": "Where are you from?",
+                "purchase_status": "Have you purchased GAPL Starter?",
+                "crop_type": "Which crop do you want to use it for?",
+                "name": "What is your name? (optional)"
+            }
+        }
         
-        # If mobile exists, try to pre-fill the form
+        current_labels = labels[st.session_state.language]
+        
+        # Get existing customer data if mobile exists
+        mobile = st.text_input(current_labels["mobile"], key="mobile")
         existing_customer = None
         if mobile and validate_mobile(mobile):
             existing_customer = st.session_state.customer_db.get_customer(mobile)
         
+        # Form fields with pre-filled data if available
         location = st.text_input(
-            config.customer_info_prompts[st.session_state.language]["location"],
+            current_labels["location"],
             key="location",
             value=existing_customer.location if existing_customer else ""
         )
+        
+        purchase_options = ["हाँ", "नहीं"] if st.session_state.language == Language.HINDI else ["Yes", "No"]
         purchase_status = st.selectbox(
-            config.customer_info_prompts[st.session_state.language]["purchase_status"],
-            ["हाँ", "नहीं"] if st.session_state.language == Language.HINDI else ["Yes", "No"],
+            current_labels["purchase_status"],
+            purchase_options,
             index=0 if existing_customer and existing_customer.purchase_status in ["हाँ", "Yes"] else 1
         )
+        
         crop_type = st.text_input(
-            config.customer_info_prompts[st.session_state.language]["crop_type"],
+            current_labels["crop_type"],
             key="crop_type",
             value=existing_customer.crop_type if existing_customer else ""
         )
+        
         name = st.text_input(
-            config.customer_info_prompts[st.session_state.language]["name"],
+            current_labels["name"],
             key="name",
             value=existing_customer.name if existing_customer else ""
         )
         
-        submit_button = st.form_submit_button(
-            "जमा करें" if st.session_state.language == Language.HINDI else "Submit"
-        )
+        # Submit button
+        submit_label = "जमा करें" if st.session_state.language == Language.HINDI else "Submit"
+        submit_button = st.form_submit_button(submit_label)
         
         if submit_button:
+            # Validation messages
+            validation_messages = {
+                Language.HINDI: {
+                    "mobile": "कृपया 10 अंकों का वैध मोबाइल नंबर दर्ज करें",
+                    "required": "कृपया सभी आवश्यक जानकारी भरें",
+                    "success": "जानकारी सफलतापूर्वक सहेजी गई",
+                    "error": "जानकारी सहेजने में त्रुटि हुई"
+                },
+                Language.ENGLISH: {
+                    "mobile": "Please enter a valid 10-digit mobile number",
+                    "required": "Please fill all required information",
+                    "success": "Information saved successfully",
+                    "error": "Error saving information"
+                }
+            }
+            
+            messages = validation_messages[st.session_state.language]
+            
             if not validate_mobile(mobile):
-                st.error(
-                    "कृपया 10 अंकों का वैध मोबाइल नंबर दर्ज करें" 
-                    if st.session_state.language == Language.HINDI 
-                    else "Please enter a valid 10-digit mobile number"
-                )
+                st.error(messages["mobile"])
                 return False
-            
+                
             if not all([location, purchase_status, crop_type]):
-                st.error(
-                    "कृपया सभी आवश्यक जानकारी भरें"
-                    if st.session_state.language == Language.HINDI
-                    else "Please fill all required information"
-                )
+                st.error(messages["required"])
                 return False
             
-            # Create customer info object
-            customer_info = CustomerInfo(
-                mobile=mobile,
-                location=location,
-                purchase_status=purchase_status,
-                crop_type=crop_type,
-                name=name if name else None
-            )
-            
-            # Save to JSON database
             try:
+                # Create and save customer info
+                customer_info = CustomerInfo(
+                    mobile=mobile,
+                    location=location,
+                    purchase_status=purchase_status,
+                    crop_type=crop_type,
+                    name=name if name else None
+                )
+                
                 st.session_state.customer_db.save_customer(customer_info)
                 st.session_state.chat_memory.set_customer_info(customer_info)
-                
-                # Show success message
-                st.success(
-                    "जानकारी सफलतापूर्वक सहेजी गई" 
-                    if st.session_state.language == Language.HINDI 
-                    else "Information saved successfully"
-                )
+                st.success(messages["success"])
                 return True
+                
             except Exception as e:
-                st.error(
-                    "जानकारी सहेजने में त्रुटि हुई" 
-                    if st.session_state.language == Language.HINDI 
-                    else "Error saving information"
-                )
+                st.error(messages["error"])
                 return False
     
     return False
+
 async def process_question(question: str):
     try:
         relevant_docs = db.search(question)
