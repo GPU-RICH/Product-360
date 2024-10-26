@@ -2,8 +2,7 @@
 import streamlit as st
 from typing import List, Dict, Any
 import asyncio
-import json
-from core import ChatConfig, ChatLogger, ChatMemory, QuestionGenerator, GeminiRAG, ProductDatabase
+from core import ChatConfig, ChatLogger, ChatMemory, QuestionGenerator, GeminiRAG, ProductDatabase, ChatBot, load_user_data, save_user_data
 
 # Enhanced session state initialization
 if 'chat_memory' not in st.session_state:
@@ -21,9 +20,27 @@ if 'message_counter' not in st.session_state:
     st.session_state.message_counter = 0
 if 'submitted_question' not in st.session_state:
     st.session_state.submitted_question = None
-if 'user_data' not in st.session_state:
-    st.session_state.user_data = {}
 
+# New user metadata session state
+if 'user_metadata' not in st.session_state:
+    st.session_state.user_metadata = {
+        'product_name': 'GAPL Starter',
+        'purchase_status': None,
+        'mobile_number': None,
+        'crop_name': None,
+        'location': None,
+        'name': None
+    }
+if 'metadata_collection_state' not in st.session_state:
+    st.session_state.metadata_collection_state = {
+        'mobile_collected': False,
+        'crop_collected': False,
+        'location_collected': False,
+        'purchase_collected': False,
+        'name_collected': False
+    }
+if 'show_metadata_form' not in st.session_state:
+    st.session_state.show_metadata_form = False
 
 # Configure the page
 st.set_page_config(
@@ -67,26 +84,94 @@ st.markdown("""
 @st.cache_resource
 def initialize_components():
     config = ChatConfig()
-    logger = ChatLogger(config.log_file)
-    question_gen = QuestionGenerator(config.gemini_api_key)
-    rag = GeminiRAG(config.gemini_api_key)
-    db = ProductDatabase(config)
-    return config, logger, question_gen, rag, db
+    return config
 
-config, logger, question_gen, rag, db = initialize_components()
+config = initialize_components()
 
 # Load product database
 @st.cache_resource
 def load_database():
     with open("STARTER.md", "r", encoding="utf-8") as f:
         markdown_content = f.read()
-    db.process_markdown(markdown_content)
+    return markdown_content
 
 try:
-    load_database()
+    markdown_content = load_database()
 except Exception as e:
     st.error(f"Error loading database: {str(e)}")
 
+# Initialize chatbot
+@st.cache_resource
+def initialize_chatbot(markdown_content):
+    chatbot = ChatBot(config)
+    chatbot.load_database()
+    return chatbot
+
+chatbot = initialize_chatbot(markdown_content)
+
+def collect_user_metadata():
+    """Displays and handles the metadata collection form"""
+    if st.session_state.show_metadata_form:
+        with st.form("metadata_form"):
+            st.write("Please help us serve you better by providing some information:")
+            
+            if not st.session_state.metadata_collection_state['purchase_collected']:
+                purchase_status = st.radio(
+                    "Have you purchased GAPL Starter before?",
+                    ['Yes', 'No', 'Planning to purchase']
+                )
+            
+            if not st.session_state.metadata_collection_state['mobile_collected']:
+                mobile = st.text_input(
+                    "Your mobile number:",
+                    max_chars=10
+                )
+            
+            if not st.session_state.metadata_collection_state['crop_collected']:
+                crop = st.text_input(
+                    "Which crop are you growing/planning to use GAPL Starter for?"
+                )
+            
+            if not st.session_state.metadata_collection_state['location_collected']:
+                location = st.text_input(
+                    "Your pincode/location:"
+                )
+            
+            if not st.session_state.metadata_collection_state['name_collected']:
+                name = st.text_input(
+                    "Your name (optional):"
+                )
+            
+            submitted = st.form_submit_button("Submit")
+            
+            if submitted:
+                if not st.session_state.metadata_collection_state['purchase_collected']:
+                    st.session_state.user_metadata['purchase_status'] = purchase_status
+                    st.session_state.metadata_collection_state['purchase_collected'] = True
+                
+                if not st.session_state.metadata_collection_state['mobile_collected'] and mobile:
+                    if len(mobile) == 10 and mobile.isdigit():
+                        st.session_state.user_metadata['mobile_number'] = mobile
+                        st.session_state.metadata_collection_state['mobile_collected'] = True
+                    else:
+                        st.error("Please enter a valid 10-digit mobile number")
+                
+                if not st.session_state.metadata_collection_state['crop_collected'] and crop:
+                    st.session_state.user_metadata['crop_name'] = crop
+                    st.session_state.metadata_collection_state['crop_collected'] = True
+                
+                if not st.session_state.metadata_collection_state['location_collected'] and location:
+                    st.session_state.user_metadata['location'] = location
+                    st.session_state.metadata_collection_state['location_collected'] = True
+                
+                if not st.session_state.metadata_collection_state['name_collected'] and name:
+                    st.session_state.user_metadata['name'] = name
+                    st.session_state.metadata_collection_state['name_collected'] = True
+                
+                # Check if all metadata is collected
+                if all(st.session_state.metadata_collection_state.values()):
+                    st.session_state.show_metadata_form = False
+                    st.rerun()
 
 async def process_question(question: str):
     """Enhanced question processing with metadata collection triggers"""
@@ -96,19 +181,18 @@ async def process_question(question: str):
         answer = await rag.get_answer(question, context)
         follow_up_questions = await question_gen.generate_questions(question, answer)
 
+        # Save interaction in memory and log
         st.session_state.chat_memory.add_interaction(question, answer)
         logger.log_interaction(question, answer)
 
-        # Collect user data after a few interactions
-        message_count = len(st.session_state.messages)
-        if message_count in [1,3,5]: #Collect data after 1st, 3rd and 5th message
-            user_data = collect_user_data()
-            st.session_state.user_data.update(user_data)
-            if all(st.session_state.user_data.values()):
-                save_user_data(st.session_state.user_data)
+        # Check if user data was provided in the response, save if so
+        user_data = collect_user_data()
+        st.session_state.user_data.update(user_data)
+        if all(st.session_state.user_data.values()):
+            save_user_data(st.session_state.user_data)
 
+        # Append messages for display
         st.session_state.message_counter += 1
-
         st.session_state.messages.append({
             "role": "user",
             "content": question,
@@ -120,44 +204,9 @@ async def process_question(question: str):
             "questions": follow_up_questions,
             "message_id": st.session_state.message_counter
         })
+
     except Exception as e:
         st.error(f"Error processing question: {str(e)}")
-
-def collect_user_data():
-    """Collects user data using a form"""
-    user_info = {}
-    if 'mobile' not in st.session_state.user_data:
-        mobile = st.text_input("Your mobile number (optional):", key="mobile")
-        if mobile:
-            user_info['mobile'] = mobile
-    if 'location' not in st.session_state.user_data:
-        location = st.text_input("Your location (optional):", key="location")
-        if location:
-            user_info['location'] = location
-    if 'purchase_status' not in st.session_state.user_data:
-        purchase_status = st.radio(
-            "Have you purchased GAPL Starter before?",
-            ['Yes', 'No', 'Planning to purchase'], key="purchase_status"
-        )
-        user_info['purchase_status'] = purchase_status
-    if 'crop' not in st.session_state.user_data:
-        crop = st.text_input("Which crop are you growing/planning to use GAPL Starter for? (optional):", key="crop")
-        if crop:
-            user_info['crop'] = crop
-    if 'name' not in st.session_state.user_data:
-        name = st.text_input("Your name (optional):", key="name")
-        if name:
-            user_info['name'] = name
-    return user_info
-
-def save_user_data(user_data):
-    """Saves user data to a JSON file"""
-    try:
-        with open("user_data.json", "w") as f:
-            json.dump(user_data, f, indent=4)
-        st.success("User data saved successfully!")
-    except Exception as e:
-        st.error(f"Error saving user data: {str(e)}")
 
 def handle_submit():
     if st.session_state.user_input:
@@ -167,6 +216,8 @@ def handle_submit():
 def main():
     st.title("🌱 GAPL Starter Product Assistant")
 
+    collect_user_metadata()
+    
     # Welcome message
     if not st.session_state.messages:
         st.markdown("""
@@ -213,11 +264,11 @@ def main():
     # Add metadata display in sidebar
     with st.sidebar:
         st.subheader("Session Information")
-        if st.session_state.user_data:
+        if any(st.session_state.user_metadata.values()):
             st.write("Collected Information:")
-            for key, value in st.session_state.user_data.items():
+            for key, value in st.session_state.user_metadata.items():
                 if value:
-                    st.write(f"- {key.title()}: {value}")
+                    st.write(f"- {key.replace('_', ' ').title()}: {value}")
     
     # Input area
     with st.container():
@@ -240,7 +291,6 @@ def main():
             st.session_state.messages = []
             st.session_state.chat_memory.clear_history()
             st.session_state.message_counter = 0
-            st.session_state.user_data = {}
             st.rerun()
 
 if __name__ == "__main__":
