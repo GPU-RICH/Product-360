@@ -9,6 +9,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.embeddings import Embeddings
 import google.generativeai as genai
 from datetime import datetime
+import json
 
 @dataclass
 class ChatConfig:
@@ -18,6 +19,7 @@ class ChatConfig:
     max_history: int = 3
     gemini_api_key: str = "AIzaSyBS_DFCJh82voYIKoglS-ow6ezGNg775pg"  # Replace with your API key
     log_file: str = "chat_history.txt"
+    user_data_file: str = "user_data.json"
 
 class ChatLogger:
     """Logger for chat interactions"""
@@ -70,6 +72,11 @@ class QuestionGenerator:
             Answer: {answer}
             
             Generate 4 relevant follow-up questions that a customer might ask about GAPL Starter.
+            Focus on:
+            - Application methods and timing
+            - Benefits and effectiveness
+            - Compatibility with specific crops
+            - Scientific backing and results
             
             Return ONLY the numbered questions (1-4), one per line.
             """
@@ -102,7 +109,7 @@ class GeminiRAG:
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
         self.generation_config = {
-            "temperature": 0.1,  # Slightly reduced for more consistent tone
+            "temperature": 0.1,
             "top_p": 0.95,
             "top_k": 64,
             "max_output_tokens": 8192,
@@ -111,43 +118,68 @@ class GeminiRAG:
             model_name="gemini-1.5-flash",
             generation_config=self.generation_config
         )
-        
+
     def create_context(self, relevant_docs: List[Dict[str, Any]]) -> str:
         """Creates a context string from relevant documents"""
         return "\n\n".join(doc['content'] for doc in relevant_docs)
-        
+
     async def get_answer(self, question: str, context: str) -> str:
         try:
             chat = self.model.start_chat(history=[])
-            prompt = f"""You are an expert agricultural consultant specializing in GAPL Starter bio-fertilizer. 
-            You have extensive hands-on experience with the product and deep knowledge of its applications and benefits.
-            
-            Background information to inform your response:
-            {context}
-
-            Question from farmer: {question}
-
-            Respond naturally as an expert would, without referencing any "provided information" or documentation.
-            Your response should be:
-            - Confident and authoritative
-            - Direct and practical
-            - Focused on helping farmers succeed
-            - Based on product expertise
-
-            If you don't have enough specific information to answer the question, say something like:
-            "As an expert on GAPL Starter, I should note that while the product has broad applications, 
-            I'd need to check the specific details about [missing information] to give you the most accurate guidance. 
-            What I can tell you is..."
-
-            Remember to maintain a helpful, expert tone throughout your response.
-            """
+            prompt = self.construct_prompt_with_user_data(question, context)
             
             response = chat.send_message(prompt)
             return response.text
-            
+
         except Exception as e:
             logging.error(f"Error generating answer: {str(e)}")
             return "I apologize, but I'm having trouble processing your request. Please try again."
+
+    def construct_prompt_with_user_data(self, question: str, context: str) -> str:
+        """Constructs prompt with follow-up for missing user data"""
+        # Check if user data is missing
+        missing_data = []
+        if 'mobile' not in st.session_state.user_data:
+            missing_data.append("your mobile number")
+        if 'location' not in st.session_state.user_data:
+            missing_data.append("where you are located")
+        if 'purchase_status' not in st.session_state.user_data:
+            missing_data.append("if you've purchased GAPL Starter before")
+        if 'crop' not in st.session_state.user_data:
+            missing_data.append("which crop you’re growing or plan to use GAPL Starter on")
+        if 'name' not in st.session_state.user_data:
+            missing_data.append("your name")
+
+        # Create tailored prompt based on missing data
+        additional_prompt = ""
+        if missing_data:
+            # Asking for one piece of information at a time
+            if missing_data[0] == "your mobile number":
+                additional_prompt = "Also, if you’re comfortable sharing, could you provide your mobile number? It will help us stay in touch with you on the latest product updates."
+            elif missing_data[0] == "where you are located":
+                additional_prompt = "Additionally, where are you located? This will help us provide tailored advice for your region."
+            elif missing_data[0] == "if you've purchased GAPL Starter before":
+                additional_prompt = "Have you used GAPL Starter before, or are you considering it? Knowing this helps me give you the best guidance."
+            elif missing_data[0] == "which crop you’re growing or plan to use GAPL Starter on":
+                additional_prompt = "Could you let me know which crop you’re planning to use GAPL Starter on? That way, I can give you crop-specific advice."
+            elif missing_data[0] == "your name":
+                additional_prompt = "Lastly, may I know your name so I can personalize our conversation better?"
+
+        # Base prompt
+        prompt = f"""You are an expert agricultural consultant specializing in GAPL Starter bio-fertilizer. 
+        You have extensive hands-on experience with the product and deep knowledge of its applications and benefits.
+
+        Background information to inform your response:
+        {context}
+
+        Question from farmer: {question}
+
+        Respond naturally as an expert would, without referencing any "provided information" or documentation.
+        {additional_prompt}
+        """
+
+        return prompt
+
 
 class CustomEmbeddings(Embeddings):
     """Custom embeddings using SentenceTransformer"""
@@ -222,3 +254,141 @@ class ProductDatabase:
         except Exception as e:
             logging.error(f"Error during search: {str(e)}")
             return []
+
+def load_user_data(user_data_file: str) -> Dict[str, Any]:
+    """Loads user data from a JSON file"""
+    try:
+        with open(user_data_file, 'r') as f:
+            user_data = json.load(f)
+        return user_data
+    except FileNotFoundError:
+        return {}
+
+def save_user_data(user_data: Dict[str, Any], user_data_file: str):
+    """Saves user data to a JSON file"""
+    with open(user_data_file, 'w') as f:
+        json.dump(user_data, f, indent=4)
+
+def extract_user_info(question: str, user_data: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """Extracts user information from the question"""
+    extracted_info = {}
+    
+    if "mobile" in question.lower() or "phone" in question.lower():
+        if "mobile" in question.lower():
+            mobile_number = question.split("mobile")[1].strip()
+        else:
+            mobile_number = question.split("phone")[1].strip()
+        if mobile_number.isdigit() and len(mobile_number) == 10:
+            extracted_info["mobile_number"] = mobile_number
+            user_data["mobile_number"] = mobile_number
+    
+    if "location" in question.lower() or "pincode" in question.lower():
+        if "location" in question.lower():
+            location = question.split("location")[1].strip()
+        else:
+            location = question.split("pincode")[1].strip()
+        extracted_info["location"] = location
+        user_data["location"] = location
+    
+    if "purchase" in question.lower() or "bought" in question.lower():
+        if "purchase" in question.lower():
+            purchase_status = question.split("purchase")[1].strip()
+        else:
+            purchase_status = question.split("bought")[1].strip()
+        if purchase_status.lower() in ["yes", "no", "planning to purchase"]:
+            extracted_info["purchase_status"] = purchase_status
+            user_data["purchase_status"] = purchase_status
+    
+    if "crop" in question.lower():
+        crop_name = question.split("crop")[1].strip()
+        extracted_info["crop_name"] = crop_name
+        user_data["crop_name"] = crop_name
+    
+    if "name" in question.lower():
+        name = question.split("name")[1].strip()
+        extracted_info["name"] = name
+        user_data["name"] = name
+    
+    if extracted_info:
+        save_user_data(user_data, config.user_data_file)
+        return extracted_info
+    else:
+        return None
+
+class ChatBot:
+    """Main chatbot class"""
+    def __init__(self, config: ChatConfig):
+        self.config = config
+        self.logger = ChatLogger(config.log_file)
+        self.question_gen = QuestionGenerator(config.gemini_api_key)
+        self.rag = GeminiRAG(config.gemini_api_key)
+        self.db = ProductDatabase(config)
+        self.chat_memory = ChatMemory(config.max_history)
+        self.user_data = load_user_data(config.user_data_file)
+        
+    def load_database(self):
+        """Loads the product database"""
+        with open("STARTER.md", "r", encoding="utf-8") as f:
+            markdown_content = f.read()
+        self.db.process_markdown(markdown_content)
+        
+    async def process_question(self, question: str) -> str:
+        """Processes the user's question"""
+        try:
+            extracted_info = extract_user_info(question, self.user_data)
+            
+            relevant_docs = self.db.search(question)
+            context = self.rag.create_context(relevant_docs)
+            answer = await self.rag.get_answer(question, context)
+            follow_up_questions = await self.question_gen.generate_questions(question, answer)
+            
+            self.chat_memory.add_interaction(question, answer)
+            self.logger.log_interaction(question, answer)
+            
+            # Add user info to the answer if available
+            if extracted_info:
+                answer += f"\n\nBased on your information, I can provide more tailored advice. "
+                for key, value in extracted_info.items():
+                    answer += f"You mentioned your {key} is {value}. "
+            
+            return answer, follow_up_questions
+            
+        except Exception as e:
+            logging.error(f"Error processing question: {str(e)}")
+            return "I apologize, but I'm having trouble processing your request. Please try again.", []
+
+    def get_initial_questions(self) -> List[str]:
+        """Returns a list of initial questions"""
+        return [
+            "What are the main benefits of GAPL Starter?",
+            "How do I apply GAPL Starter correctly?",
+            "Which crops is GAPL Starter suitable for?",
+            "What is the recommended dosage?"
+        ]
+
+    def get_user_data(self) -> Dict[str, Any]:
+        """Returns the user data"""
+        return self.user_data
+
+    def clear_chat_history(self):
+        """Clears the chat history"""
+        self.chat_memory.clear_history()
+
+if __name__ == "__main__":
+    config = ChatConfig()
+    chatbot = ChatBot(config)
+    chatbot.load_database()
+    
+    # Example usage
+    while True:
+        question = input("You: ")
+        if question.lower() == "exit":
+            break
+        
+        answer, follow_up_questions = asyncio.run(chatbot.process_question(question))
+        print(f"Bot: {answer}")
+        
+        if follow_up_questions:
+            print("Follow-up questions:")
+            for i, q in enumerate(follow_up_questions):
+                print(f"{i+1}. {q}")
