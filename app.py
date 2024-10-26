@@ -1,43 +1,96 @@
 import streamlit as st
 from typing import List, Dict, Any
 import asyncio
-from core import ChatConfig, ChatLogger, ChatMemory, QuestionGenerator, GeminiRAG, ProductDatabase
+from core import (
+    ChatConfig, 
+    ChatLogger, 
+    ChatMemory, 
+    QuestionGenerator, 
+    GeminiRAG, 
+    ProductDatabase,
+    UserDataManager,
+    TRANSLATIONS
+)
+import uuid
+import json
 
 # Enhanced session state initialization
+if 'session_id' not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+if 'language' not in st.session_state:
+    st.session_state.language = 'en'
 if 'chat_memory' not in st.session_state:
     st.session_state.chat_memory = ChatMemory()
 if 'messages' not in st.session_state:
     st.session_state.messages = []
-if 'initial_questions' not in st.session_state:
-    st.session_state.initial_questions = [
+if 'user_data' not in st.session_state:
+    st.session_state.user_data = {}
+if 'show_data_collection' not in st.session_state:
+    st.session_state.show_data_collection = False
+if 'current_data_field' not in st.session_state:
+    st.session_state.current_data_field = None
+if 'submitted_question' not in st.session_state:
+    st.session_state.submitted_question = None
+
+# Initial questions in both languages
+INITIAL_QUESTIONS = {
+    'en': [
         "What are the main benefits of GAPL Starter?",
         "How do I apply GAPL Starter correctly?",
         "Which crops is GAPL Starter suitable for?",
         "What is the recommended dosage?"
+    ],
+    'hi': [
+        "GAPL Starter के मुख्य लाभ क्या हैं?",
+        "GAPL Starter को सही तरीके से कैसे लगाएं?",
+        "GAPL Starter किन फसलों के लिए उपयुक्त है?",
+        "अनुशंसित खुराक क्या है?"
     ]
-if 'message_counter' not in st.session_state:
-    st.session_state.message_counter = 0
-if 'submitted_question' not in st.session_state:
-    st.session_state.submitted_question = None
+}
 
-# New user metadata session state
-if 'user_metadata' not in st.session_state:
-    st.session_state.user_metadata = {
-        'product_name': 'GAPL Starter',
-        'purchase_status': None,
-        'mobile_number': None,
-        'crop_name': None,
-        'location': None
+# UI text translations
+UI_TEXT = {
+    'en': {
+        'title': "🌱 GAPL Starter Product Assistant",
+        'welcome': """
+        👋 Welcome! I'm your GAPL Starter product expert. I can help you learn about:
+        - Product benefits and features
+        - Application methods and timing
+        - Dosage recommendations
+        - Crop compatibility
+        - Technical specifications
+        
+        Choose a question below or ask your own!
+        """,
+        'input_placeholder': "Ask me anything about GAPL Starter...",
+        'clear_chat': "Clear Chat",
+        'session_info': "Session Information",
+        'collected_info': "Collected Information:",
+        'data_collection_title': "Please help us serve you better",
+        'submit': "Submit",
+        'language_selector': "Select Language / भाषा चुनें"
+    },
+    'hi': {
+        'title': "🌱 GAPL Starter उत्पाद सहायक",
+        'welcome': """
+        👋 नमस्ते! मैं आपका GAPL Starter विशेषज्ञ हूं। मैं आपको इन विषयों में मदद कर सकता हूं:
+        - उत्पाद के लाभ और विशेषताएं
+        - उपयोग की विधियां और समय
+        - खुराक की सिफारिशें
+        - फसल अनुकूलता
+        - तकनीकी विवरण
+        
+        नीचे दिए गए प्रश्न चुनें या अपना प्रश्न पूछें!
+        """,
+        'input_placeholder': "GAPL Starter के बारे में कुछ भी पूछें...",
+        'clear_chat': "चैट साफ करें",
+        'session_info': "सत्र जानकारी",
+        'collected_info': "एकत्रित जानकारी:",
+        'data_collection_title': "कृपया हमें आपकी बेहतर सेवा करने में मदद करें",
+        'submit': "जमा करें",
+        'language_selector': "Select Language / भाषा चुनें"
     }
-if 'metadata_collection_state' not in st.session_state:
-    st.session_state.metadata_collection_state = {
-        'mobile_collected': False,
-        'crop_collected': False,
-        'location_collected': False,
-        'purchase_collected': False
-    }
-if 'show_metadata_form' not in st.session_state:
-    st.session_state.show_metadata_form = False
+}
 
 # Configure the page
 st.set_page_config(
@@ -46,7 +99,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS
+# Custom CSS with language-specific fonts
 st.markdown("""
 <style>
 .user-message {
@@ -55,6 +108,7 @@ st.markdown("""
     padding: 15px;
     border-radius: 15px;
     margin: 10px 0;
+    font-family: 'Arial', 'Noto Sans Devanagari', sans-serif;
 }
 .assistant-message {
     background-color: #000000;
@@ -62,6 +116,7 @@ st.markdown("""
     padding: 15px;
     border-radius: 15px;
     margin: 10px 0;
+    font-family: 'Arial', 'Noto Sans Devanagari', sans-serif;
 }
 .stButton > button {
     background-color: #212B2A;
@@ -70,9 +125,16 @@ st.markdown("""
     padding: 10px 15px;
     border-radius: 5px;
     transition: background-color 0.3s;
+    font-family: 'Arial', 'Noto Sans Devanagari', sans-serif;
 }
 .stButton > button:hover {
     background-color: #45a049;
+}
+.data-collection-form {
+    background-color: #f0f2f6;
+    padding: 20px;
+    border-radius: 10px;
+    margin: 10px 0;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -85,9 +147,10 @@ def initialize_components():
     question_gen = QuestionGenerator(config.gemini_api_key)
     rag = GeminiRAG(config.gemini_api_key)
     db = ProductDatabase(config)
-    return config, logger, question_gen, rag, db
+    user_manager = UserDataManager(config.user_data_file)
+    return config, logger, question_gen, rag, db, user_manager
 
-config, logger, question_gen, rag, db = initialize_components()
+config, logger, question_gen, rag, db, user_manager = initialize_components()
 
 # Load product database
 @st.cache_resource
@@ -101,121 +164,132 @@ try:
 except Exception as e:
     st.error(f"Error loading database: {str(e)}")
 
-def collect_user_metadata():
-    """Displays and handles the metadata collection form"""
-    if st.session_state.show_metadata_form:
-        with st.form("metadata_form"):
-            st.write("Please help us serve you better by providing some information:")
+def handle_data_collection():
+    """Handles the data collection form"""
+    if st.session_state.show_data_collection and st.session_state.current_data_field:
+        with st.form("data_collection_form", clear_on_submit=True):
+            st.subheader(UI_TEXT[st.session_state.language]['data_collection_title'])
             
-            if not st.session_state.metadata_collection_state['purchase_collected']:
-                purchase_status = st.radio(
-                    "Have you purchased GAPL Starter before?",
-                    ['Yes', 'No', 'Planning to purchase']
-                )
+            field = st.session_state.current_data_field
+            value = None
             
-            if not st.session_state.metadata_collection_state['mobile_collected']:
-                mobile = st.text_input(
-                    "Your mobile number:",
+            if field == 'mobile_number':
+                value = st.text_input(
+                    TRANSLATIONS[st.session_state.language]['mobile_prompt'],
                     max_chars=10
                 )
-            
-            if not st.session_state.metadata_collection_state['crop_collected']:
-                crop = st.text_input(
-                    "Which crop are you growing/planning to use GAPL Starter for?"
+            elif field == 'location':
+                value = st.text_input(
+                    TRANSLATIONS[st.session_state.language]['location_prompt']
+                )
+            elif field == 'crop':
+                value = st.text_input(
+                    TRANSLATIONS[st.session_state.language]['crop_prompt']
+                )
+            elif field == 'purchase_status':
+                value = st.radio(
+                    TRANSLATIONS[st.session_state.language]['purchase_prompt'],
+                    ['Yes', 'No', 'Planning to purchase'] if st.session_state.language == 'en' else 
+                    ['हां', 'नहीं', 'खरीदने की योजना है']
                 )
             
-            if not st.session_state.metadata_collection_state['location_collected']:
-                location = st.text_input(
-                    "Your pincode/location:"
-                )
-            
-            submitted = st.form_submit_button("Submit")
-            
-            if submitted:
-                if not st.session_state.metadata_collection_state['purchase_collected']:
-                    st.session_state.user_metadata['purchase_status'] = purchase_status
-                    st.session_state.metadata_collection_state['purchase_collected'] = True
-                
-                if not st.session_state.metadata_collection_state['mobile_collected'] and mobile:
-                    if len(mobile) == 10 and mobile.isdigit():
-                        st.session_state.user_metadata['mobile_number'] = mobile
-                        st.session_state.metadata_collection_state['mobile_collected'] = True
-                    else:
-                        st.error("Please enter a valid 10-digit mobile number")
-                
-                if not st.session_state.metadata_collection_state['crop_collected'] and crop:
-                    st.session_state.user_metadata['crop_name'] = crop
-                    st.session_state.metadata_collection_state['crop_collected'] = True
-                
-                if not st.session_state.metadata_collection_state['location_collected'] and location:
-                    st.session_state.user_metadata['location'] = location
-                    st.session_state.metadata_collection_state['location_collected'] = True
-                
-                # Check if all metadata is collected
-                if all(st.session_state.metadata_collection_state.values()):
-                    st.session_state.show_metadata_form = False
+            if st.form_submit_button(UI_TEXT[st.session_state.language]['submit']):
+                if value:
+                    st.session_state.user_data[field] = value
+                    user_manager.save_user_data(st.session_state.session_id, st.session_state.user_data)
+                    st.session_state.show_data_collection = False
+                    st.session_state.current_data_field = None
                     st.rerun()
 
 async def process_question(question: str):
-    """Enhanced question processing with metadata collection triggers"""
+    """Process user questions and generate responses"""
     try:
         relevant_docs = db.search(question)
         context = rag.create_context(relevant_docs)
-        answer = await rag.get_answer(question, context)
-        follow_up_questions = await question_gen.generate_questions(question, answer)
         
-        st.session_state.chat_memory.add_interaction(question, answer)
-        logger.log_interaction(question, answer)
+        # Get response with potential data collection prompt
+        response_data = await rag.get_answer(
+            question, 
+            context, 
+            st.session_state.user_data,
+            st.session_state.language
+        )
         
-        # Trigger metadata collection based on message count or specific keywords
-        message_count = len(st.session_state.messages)
-        if (message_count == 2 and not st.session_state.metadata_collection_state['purchase_collected']) or \
-           (message_count == 4 and not st.session_state.metadata_collection_state['crop_collected']) or \
-           (message_count == 6 and not st.session_state.metadata_collection_state['location_collected']):
-            st.session_state.show_metadata_form = True
+        answer = response_data["answer"]
+        if response_data["collect_data"]:
+            st.session_state.show_data_collection = True
+            st.session_state.current_data_field = response_data["collect_data"]
         
-        st.session_state.message_counter += 1
+        follow_up_questions = await question_gen.generate_questions(
+            question, 
+            answer,
+            st.session_state.language
+        )
+        
+        st.session_state.chat_memory.add_interaction(
+            question, 
+            answer, 
+            st.session_state.user_data
+        )
+        
+        logger.log_interaction(
+            question, 
+            answer, 
+            st.session_state.session_id,
+            st.session_state.language
+        )
         
         st.session_state.messages.append({
             "role": "user",
-            "content": question,
-            "message_id": st.session_state.message_counter
+            "content": question
         })
+        
         st.session_state.messages.append({
             "role": "assistant",
             "content": answer,
-            "questions": follow_up_questions,
-            "message_id": st.session_state.message_counter
+            "questions": follow_up_questions
         })
+        
     except Exception as e:
         st.error(f"Error processing question: {str(e)}")
 
-def handle_submit():
-    if st.session_state.user_input:
-        st.session_state.submitted_question = st.session_state.user_input
-        st.session_state.user_input = ""
+def handle_language_change():
+    """Handle language selection change"""
+    st.session_state.messages = []
+    st.session_state.chat_memory.clear_history()
+    st.rerun()
 
 def main():
-    st.title("🌱 GAPL Starter Product Assistant")
+    # Language selector in sidebar
+    with st.sidebar:
+        language = st.selectbox(
+            "Select Language / भाषा चुनें",
+            options=['English', 'हिंदी'],
+            key='language_selector',
+            on_change=handle_language_change
+        )
+        st.session_state.language = 'en' if language == 'English' else 'hi'
+        
+        # Display user information
+        st.subheader(UI_TEXT[st.session_state.language]['session_info'])
+        if st.session_state.user_data:
+            st.write(UI_TEXT[st.session_state.language]['collected_info'])
+            for key, value in st.session_state.user_data.items():
+                st.write(f"- {key}: {value}")
 
-    collect_user_metadata()
+    # Main chat interface
+    st.title(UI_TEXT[st.session_state.language]['title'])
+    
+    # Data collection form
+    handle_data_collection()
     
     # Welcome message
     if not st.session_state.messages:
-        st.markdown("""
-        👋 Welcome! I'm your GAPL Starter product expert. I can help you learn about:
-        - Product benefits and features
-        - Application methods and timing
-        - Dosage recommendations
-        - Crop compatibility
-        - Technical specifications
-        
-        Choose a question below or ask your own!
-        """)
+        st.markdown(UI_TEXT[st.session_state.language]['welcome'])
         
         # Display initial questions as buttons
         cols = st.columns(2)
-        for i, question in enumerate(st.session_state.initial_questions):
+        for i, question in enumerate(INITIAL_QUESTIONS[st.session_state.language]):
             if cols[i % 2].button(question, key=f"initial_{i}", use_container_width=True):
                 asyncio.run(process_question(question))
     
@@ -233,47 +307,39 @@ def main():
             )
             
             if message.get("questions"):
+                st.markdown(f"_{TRANSLATIONS[st.session_state.language]['follow_up_prefix']}_")
                 cols = st.columns(2)
                 for i, question in enumerate(message["questions"]):
                     if cols[i % 2].button(
                         question,
-                        key=f"followup_{message['message_id']}_{i}",
+                        key=f"followup_{i}_{len(st.session_state.messages)}",
                         use_container_width=True
                     ):
                         asyncio.run(process_question(question))
-
-
-    # Add metadata display in sidebar
-    with st.sidebar:
-        st.subheader("Session Information")
-        if any(st.session_state.user_metadata.values()):
-            st.write("Collected Information:")
-            for key, value in st.session_state.user_metadata.items():
-                if value:
-                    st.write(f"- {key.replace('_', ' ').title()}: {value}")
     
-    # Input area
-    with st.container():
-        st.text_input(
-            "Ask me anything about GAPL Starter:",
-            key="user_input",
-            placeholder="Type your question here...",
-            on_change=handle_submit
-        )
-        
-        # Process submitted question
-        if st.session_state.submitted_question:
-            asyncio.run(process_question(st.session_state.submitted_question))
-            st.session_state.submitted_question = None
-            st.rerun()
-        
-        cols = st.columns([4, 1])
-        # Clear chat button
-        if cols[1].button("Clear Chat", use_container_width=True):
-            st.session_state.messages = []
-            st.session_state.chat_memory.clear_history()
-            st.session_state.message_counter = 0
-            st.rerun()
+    # Chat input
+    st.text_input(
+        "",
+        key="user_input",
+        placeholder=UI_TEXT[st.session_state.language]['input_placeholder'],
+        on_change=lambda: handle_submit() if st.session_state.user_input else None
+    )
+    
+    # Clear chat button
+    cols = st.columns([4, 1])
+    if cols[1].button(UI_TEXT[st.session_state.language]['clear_chat'], use_container_width=True):
+        st.session_state.messages = []
+        st.session_state.chat_memory.clear_history()
+        st.rerun()
+
+def handle_submit():
+    """Handle user input submission"""
+    if st.session_state.user_input:
+        st.session_state.submitted_question = st.session_state.user_input
+        st.session_state.user_input = ""
+        asyncio.run(process_question(st.session_state.submitted_question))
+        st.session_state.submitted_question = None
+        st.rerun()
 
 if __name__ == "__main__":
     main()
