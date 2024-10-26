@@ -8,123 +8,105 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.embeddings import Embeddings
 import google.generativeai as genai
 from datetime import datetime
-import json
 
 @dataclass
 class ChatConfig:
     """Configuration for the chatbot"""
     embedding_model_name: str = 'all-MiniLM-L6-v2'
     device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
-    max_history: int = 4
+    max_history: int = 3
     gemini_api_key: str = "AIzaSyBS_DFCJh82voYIKoglS-ow6ezGNg775pg"  # Replace with your API key
     log_file: str = "chat_history.txt"
-    user_data_file: str = "farmer_data.json"
-    default_language: str = "english"
 
 class ChatLogger:
-    """Logger for chat interactions with metadata"""
+    """Logger for chat interactions"""
     def __init__(self, log_file: str):
         self.log_file = log_file
         
-    def log_interaction(self, question: str, answer: str, metadata: Dict[str, Any] = None):
+    def log_interaction(self, question: str, answer: str):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with open(self.log_file, 'a', encoding='utf-8') as f:
-            f.write(f"\n[{timestamp}]\nQ: {question}\nA: {answer}")
-            if metadata:
-                f.write(f"\nMetadata: {metadata}")
-            f.write(f"\n{'-'*50}")
-
-class UserDataManager:
-    """Manages user data persistence"""
-    def __init__(self, data_file: str):
-        self.data_file = data_file
-        self.ensure_file_exists()
-
-    def ensure_file_exists(self):
-        if not os.path.exists(self.data_file):
-            with open(self.data_file, 'w', encoding='utf-8') as f:
-                json.dump({}, f)
-
-    def save_user_data(self, user_id: str, data: Dict[str, Any]):
-        try:
-            with open(self.data_file, 'r+', encoding='utf-8') as f:
-                all_data = json.load(f)
-                all_data[user_id] = data
-                f.seek(0)
-                json.dump(all_data, f, indent=2)
-                f.truncate()
-        except Exception as e:
-            logging.error(f"Error saving user data: {str(e)}")
-
-    def get_user_data(self, user_id: str) -> Dict[str, Any]:
-        try:
-            with open(self.data_file, 'r', encoding='utf-8') as f:
-                all_data = json.load(f)
-                return all_data.get(user_id, {})
-        except Exception as e:
-            logging.error(f"Error reading user data: {str(e)}")
-            return {}
+            f.write(f"\n[{timestamp}]\nQ: {question}\nA: {answer}\n{'-'*50}")
 
 class ChatMemory:
-    """Manages chat history with metadata"""
+    """Manages chat history"""
     def __init__(self, max_history: int = 3):
         self.max_history = max_history
         self.history = []
-        self.metadata = {}
         
-    def add_interaction(self, question: str, answer: str, metadata: Dict[str, Any] = None):
-        self.history.append({
-            "question": question,
-            "answer": answer,
-            "metadata": metadata
-        })
+    def add_interaction(self, question: str, answer: str):
+        self.history.append({"question": question, "answer": answer})
         if len(self.history) > self.max_history:
             self.history.pop(0)
             
-    def get_history(self) -> List[Dict[str, Any]]:
+    def get_history(self) -> List[Dict[str, str]]:
         return self.history
     
     def clear_history(self):
         self.history = []
-        
-    def update_metadata(self, new_metadata: Dict[str, Any]):
-        self.metadata.update(new_metadata)
 
-class MetadataExtractor:
-    """Extracts and validates user metadata from responses"""
-    @staticmethod
-    def extract_metadata(text: str) -> Dict[str, Any]:
-        metadata = {}
-        
-        # Look for phone numbers (10 digits)
-        import re
-        phone_match = re.search(r'\b\d{10}\b', text)
-        if phone_match:
-            metadata['mobile_number'] = phone_match.group(0)
-        
-        # Look for location mentions
-        # This is a simple implementation - could be enhanced with NER
-        location_indicators = ['in', 'at', 'from', 'near']
-        words = text.lower().split()
-        for i, word in enumerate(words):
-            if word in location_indicators and i + 1 < len(words):
-                metadata['location'] = words[i + 1].capitalize()
-                break
-        
-        # Look for crop mentions
-        common_crops = ['wheat', 'rice', 'cotton', 'sugarcane', 'corn', 'maize']
-        found_crops = [crop for crop in common_crops if crop in text.lower()]
-        if found_crops:
-            metadata['crop_name'] = found_crops[0].capitalize()
-        
-        return metadata
-
-class GeminiRAG:
-    """RAG implementation with natural language support"""
+class QuestionGenerator:
+    """Generates follow-up questions using Gemini"""
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
         self.generation_config = {
             "temperature": 0.2,
+            "top_p": 0.95,
+            "top_k": 64,
+            "max_output_tokens": 2048,
+        }
+        self.model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",
+            generation_config=self.generation_config
+        )
+        
+    async def generate_questions(self, question: str, answer: str) -> List[str]:
+        try:
+            chat = self.model.start_chat(history=[])
+            prompt = f"""Based on this product information interaction:
+            
+            Question: {question}
+            Answer: {answer}
+            
+            Generate 4 relevant follow-up questions that a customer might ask about GAPL Starter.
+            Focus on:
+            - Application methods and timing
+            - Benefits and effectiveness
+            - Compatibility with specific crops
+            - Scientific backing and results
+            
+            Return ONLY the numbered questions (1-4), one per line.
+            """
+            
+            response = chat.send_message(prompt).text
+            
+            questions = []
+            for line in response.split('\n'):
+                line = line.strip()
+                if line and (line.startswith('1.') or line.startswith('2.') or 
+                           line.startswith('3.') or line.startswith('4.')):
+                    questions.append(line.split('.', 1)[1].strip())
+            
+            while len(questions) < 4:
+                questions.append("Can you provide more details about GAPL Starter?")
+            
+            return questions[:4]
+            
+        except Exception as e:
+            logging.error(f"Error generating questions: {str(e)}")
+            return [
+                "How should I store GAPL Starter?",
+                "Can I use it with other fertilizers?",
+                "What results can I expect to see?",
+                "Is it safe for all soil types?"
+            ]
+
+class GeminiRAG:
+    """RAG implementation using Gemini"""
+    def __init__(self, api_key: str):
+        genai.configure(api_key=api_key)
+        self.generation_config = {
+            "temperature": 0.1,  # Slightly reduced for more consistent tone
             "top_p": 0.95,
             "top_k": 64,
             "max_output_tokens": 8192,
@@ -135,67 +117,41 @@ class GeminiRAG:
         )
         
     def create_context(self, relevant_docs: List[Dict[str, Any]]) -> str:
-        context_parts = []
-        for doc in relevant_docs:
-            context_parts.append(f"Section: {doc['metadata']['section']}\n{doc['content']}")
-        return "\n\n".join(context_parts)
+        """Creates a context string from relevant documents"""
+        return "\n\n".join(doc['content'] for doc in relevant_docs)
         
-    async def get_answer(self, question: str, context: str, 
-                        metadata: Dict[str, Any], language: str = "english") -> str:
+    async def get_answer(self, question: str, context: str) -> str:
         try:
             chat = self.model.start_chat(history=[])
-            prompt = self._create_prompt(question, context, metadata, language)
-            response = chat.send_message(prompt).text
-            return response
+            prompt = f"""You are an expert agricultural consultant specializing in GAPL Starter bio-fertilizer. 
+            You have extensive hands-on experience with the product and deep knowledge of its applications and benefits.
+            
+            Background information to inform your response:
+            {context}
+
+            Question from farmer: {question}
+
+            Respond naturally as an expert would, without referencing any "provided information" or documentation.
+            Your response should be:
+            - Confident and authoritative
+            - Direct and practical
+            - Focused on helping farmers succeed
+            - Based on product expertise
+
+            If you don't have enough specific information to answer the question, say something like:
+            "As an expert on GAPL Starter, I should note that while the product has broad applications, 
+            I'd need to check the specific details about [missing information] to give you the most accurate guidance. 
+            What I can tell you is..."
+
+            Remember to maintain a helpful, expert tone throughout your response.
+            """
+            
+            response = chat.send_message(prompt)
+            return response.text
+            
         except Exception as e:
             logging.error(f"Error generating answer: {str(e)}")
-            error_msg = "I'm having trouble processing your request. Please try again."
-            return error_msg if language == "english" else "मुझे आपका सवाल समझने में दिक्कत हो रही है। कृपया दोबारा प्रयास करें।"
-            
-    def _create_prompt(self, question: str, context: str, metadata: Dict[str, Any], language: str) -> str:
-        # Determine if we need to collect user information
-        needs_info = not all(metadata.get(key) for key in ['mobile_number', 'location', 'crop_name'])
-        
-        base_prompt = {
-            "english": """You are an expert agricultural consultant specializing in GAPL Starter bio-fertilizer. 
-                      Respond in English. Keep responses natural and conversational.""",
-            "hindi": """आप GAPL Starter जैविक उर्वरक के विशेषज्ञ कृषि सलाहकार हैं।
-                     हिंदी में जवाब दें। जवाब सरल और बातचीत की तरह होना चाहिए।"""
-        }
-
-        info_collection = {
-            "english": """If the user hasn't shared their details, naturally ask for relevant information like:
-                      - Their location/district
-                      - Which crops they're growing
-                      - Their contact number
-                      Make this part of your natural conversation, don't make it feel like a form.""",
-            "hindi": """अगर उपयोगकर्ता ने अपनी जानकारी साझा नहीं की है, तो सहज रूप से पूछें:
-                     - उनका स्थान/जिला
-                     - वे कौन सी फसलें उगा रहे हैं
-                     - उनका संपर्क नंबर
-                     इसे सामान्य बातचीत का हिस्सा बनाएं।"""
-        }
-
-        prompt = f"""{base_prompt[language]}
-
-        Background information:
-        {context}
-
-        Question: {question}
-
-        Current user information:
-        {metadata}
-
-        Guidelines:
-        - Be concise but informative
-        - Include specific dosage and application advice when relevant
-        - Mention safety precautions where applicable
-        - Use simple, clear language
-        - If you don't know something specific, be honest about it
-        {info_collection[language] if needs_info else ''}
-        """
-        
-        return prompt
+            return "I apologize, but I'm having trouble processing your request. Please try again."
 
 class CustomEmbeddings(Embeddings):
     """Custom embeddings using SentenceTransformer"""
@@ -225,9 +181,11 @@ class ProductDatabase:
     def process_markdown(self, markdown_content: str):
         """Process markdown content and create vector store"""
         try:
+            # Split the content into sections
             sections = markdown_content.split('\n## ')
             documents = []
             
+            # Process the first section (intro)
             if sections[0].startswith('# '):
                 intro = sections[0].split('\n', 1)[1]
                 documents.append({
@@ -235,6 +193,7 @@ class ProductDatabase:
                     "section": "Introduction"
                 })
             
+            # Process remaining sections
             for section in sections[1:]:
                 if section.strip():
                     title, content = section.split('\n', 1)
@@ -243,6 +202,7 @@ class ProductDatabase:
                         "section": title.strip()
                     })
             
+            # Create vector store
             texts = [doc["content"] for doc in documents]
             metadatas = [{"section": doc["section"]} for doc in documents]
             
@@ -256,6 +216,7 @@ class ProductDatabase:
             raise Exception(f"Error processing markdown content: {str(e)}")
         
     def search(self, query: str, k: int = 3) -> List[Dict[str, Any]]:
+        """Search for relevant documents"""
         if not self.vectorstore:
             raise ValueError("Database not initialized. Please process documents first.")
         
