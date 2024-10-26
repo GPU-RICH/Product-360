@@ -118,11 +118,37 @@ def handle_submit():
         st.session_state.submitted_question = st.session_state.user_input
         st.session_state.user_input = ""
 
+def handle_user_info_submit():
+    if st.session_state.user_info_input:
+        user_input = st.session_state.user_info_input
+        st.session_state.messages.append({
+            "role": "user",
+            "content": user_input,
+            "message_id": st.session_state.message_counter
+        })
+        # Initialize UserInfoParser
+        user_info_parser = UserInfoParser(config.gemini_api_key)
+        # Parse user info
+        user_info = asyncio.run(user_info_parser.parse_user_info(user_input))
+        st.session_state.user_info = user_info
+        st.session_state.user_info_collected = True
+        st.session_state.message_counter += 1
+        
+        # Add confirmation message
+        confirmation_message = f"""Thank you for providing your information! I'll be happy to help you with any questions about GAPL Starter.
+
+You can choose from the questions below or ask your own!"""
+        
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": confirmation_message,
+            "message_id": st.session_state.message_counter
+        })
+        st.session_state.user_info_input = ""
+
+
 def main():
     st.title("🌱 GAPL Starter Product Assistant")
-    
-    # Initialize UserInfoParser
-    user_info_parser = UserInfoParser(config.gemini_api_key)
     
     # Handle user information collection
     if not st.session_state.user_info_collected:
@@ -155,40 +181,19 @@ Please provide your:
                     unsafe_allow_html=True
                 )
         
-        # Input area for user information
-        st.text_input(
-            "Please provide your information:",
-            key="user_info_input",
-            placeholder="Example: My name is John and my phone number is 1234567890. I grow wheat and rice in Delhi",
-            on_change=handle_user_info_submit
-        )
-        
-        # Process submitted user information
-        if st.session_state.get('user_info_input'):
-            user_info = asyncio.run(user_info_parser.parse_user_info(st.session_state.user_info_input))
-            st.session_state.user_info = user_info
-            st.session_state.user_info_collected = True
-            
-            # Add user response to chat history
-            st.session_state.messages.append({
-                "role": "user",
-                "content": st.session_state.user_info_input,
-                "message_id": st.session_state.message_counter
-            })
-            
-            # Add confirmation message
-            confirmation_message = f"""Thank you for providing your information! I'll be happy to help you with any questions about GAPL Starter.
-
-You can choose from the questions below or ask your own!"""
-            
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": confirmation_message,
-                "message_id": st.session_state.message_counter + 1
-            })
-            
-            st.rerun()
-    
+        # Input area for user information with submit button
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            user_input = st.text_input(
+                "Please provide your information:",
+                key="user_info_input",
+                placeholder="Example: My name is John and my phone number is 1234567890. I grow wheat and rice in Delhi"
+            )
+        with col2:
+            if st.button("Submit", key="submit_user_info"):
+                if user_input:
+                    handle_user_info_submit()
+                    st.rerun()
     # Rest of your existing main() function code for normal chat interaction
     else:
         st.title("🌱 GAPL Starter Product Assistant")
@@ -258,10 +263,6 @@ You can choose from the questions below or ask your own!"""
                 st.session_state.message_counter = 0
                 st.rerun()
 
-def handle_user_info_submit():
-    if st.session_state.user_info_input:
-        st.session_state.submitted_user_info = st.session_state.user_info_input
-        st.session_state.user_info_input = ""
         
 if __name__ == "__main__":
     main()
