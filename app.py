@@ -98,6 +98,18 @@ def initialize_components():
     user_data_manager = UserDataManager(config.user_data_file)
     return config, logger, rag, db, user_data_manager
 
+@st.cache_resource
+def load_database():
+    with open("STARTER.md", "r", encoding="utf-8") as f:
+        markdown_content = f.read()
+    db.process_markdown(markdown_content)
+
+try:
+    load_database()
+except Exception as e:
+    st.error(f"Error loading database: {str(e)}")
+
+
 async def process_question(question: str):
     """Process user question and generate response"""
     try:
