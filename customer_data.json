@@ -1,0 +1,16 @@
+{
+    "1234567890": {
+        "location": "Delhi",
+        "purchase_status": "हाँ",
+        "crop_type": "गेहूं",
+        "name": "राजेश कुमार",
+        "last_updated": "2024-10-26T14:30:00.123456"
+    },
+    "9876543210": {
+        "location": "Mumbai",
+        "purchase_status": "नहीं",
+        "crop_type": "चावल",
+        "name": null,
+        "last_updated": "2024-10-26T15:45:00.123456"
+    }
+}
