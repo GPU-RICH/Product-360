@@ -1,15 +1,16 @@
-# app.py
-
 import streamlit as st
 from typing import List, Dict, Any
 import asyncio
+import uuid
 from core import (
-    ChatConfig, ChatLogger, ChatMemory, QuestionGenerator, 
-    GeminiRAG, ProductDatabase, LanguageTranslator
+    ChatConfig, ChatLogger, ChatMemory, GeminiRAG, 
+    ProductDatabase, UserDataManager, MetadataExtractor
 )
 
 # Enhanced session state initialization
 def init_session_state():
+    if 'session_id' not in st.session_state:
+        st.session_state.session_id = str(uuid.uuid4())
     if 'chat_memory' not in st.session_state:
         st.session_state.chat_memory = ChatMemory()
     if 'messages' not in st.session_state:
@@ -35,12 +36,8 @@ def init_session_state():
         st.session_state.metadata = {
             'mobile_number': None,
             'location': None,
-            'crop_name': None,
-            'purchase_status': None,
-            'name': None
+            'crop_name': None
         }
-    if 'metadata_collected' not in st.session_state:
-        st.session_state.metadata_collected = False
     if 'message_counter' not in st.session_state:
         st.session_state.message_counter = 0
 
@@ -51,7 +48,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS with Hindi font support
+# Custom CSS
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&display=swap');
@@ -76,20 +73,6 @@ st.markdown("""
     margin: 10px 0;
 }
 
-.metadata-form {
-    background-color: #f0f2f6;
-    padding: 20px;
-    border-radius: 10px;
-    margin: 15px 0;
-}
-
-.language-selector {
-    position: fixed;
-    top: 10px;
-    right: 10px;
-    z-index: 1000;
-}
-
 .stButton > button {
     background-color: #212B2A;
     color: white;
@@ -110,106 +93,31 @@ st.markdown("""
 def initialize_components():
     config = ChatConfig()
     logger = ChatLogger(config.log_file)
-    question_gen = QuestionGenerator(config.gemini_api_key)
     rag = GeminiRAG(config.gemini_api_key)
     db = ProductDatabase(config)
-    translator = LanguageTranslator()
-    return config, logger, question_gen, rag, db, translator
-
-def collect_metadata():
-    """Displays metadata collection form"""
-    with st.form(key="metadata_form", clear_on_submit=True):
-        st.markdown("### " + get_translated_text("Please provide some information:", st.session_state.language))
-        
-        cols = st.columns(2)
-        with cols[0]:
-            mobile = st.text_input(
-                get_translated_text("Mobile Number (required):", st.session_state.language),
-                max_chars=10,
-                help="10-digit mobile number"
-            )
-            
-            location = st.text_input(
-                get_translated_text("Location/District (required):", st.session_state.language)
-            )
-            
-        with cols[1]:
-            crop = st.text_input(
-                get_translated_text("Main Crop (required):", st.session_state.language)
-            )
-            
-            name = st.text_input(
-                get_translated_text("Name (optional):", st.session_state.language)
-            )
-            
-        purchase_status = st.radio(
-            get_translated_text("Have you used GAPL Starter before?", st.session_state.language),
-            options=get_translated_options(["Yes", "No", "Planning to purchase"], st.session_state.language)
-        )
-        
-        submit_button = st.form_submit_button(
-            get_translated_text("Submit", st.session_state.language)
-        )
-        
-        if submit_button:
-            if not mobile or not location or not crop:
-                st.error(get_translated_text("Please fill in all required fields.", st.session_state.language))
-                return False
-                
-            if not mobile.isdigit() or len(mobile) != 10:
-                st.error(get_translated_text("Please enter a valid 10-digit mobile number.", st.session_state.language))
-                return False
-                
-            st.session_state.metadata.update({
-                'mobile_number': mobile,
-                'location': location,
-                'crop_name': crop,
-                'name': name if name else None,
-                'purchase_status': purchase_status
-            })
-            
-            st.session_state.metadata_collected = True
-            return True
-            
-    return False
-
-def get_translated_text(text: str, language: str) -> str:
-    """Helper function to translate text based on selected language"""
-    if language.lower() == "hindi":
-        return translator.to_hindi(text)
-    return text
-
-def get_translated_options(options: List[str], language: str) -> List[str]:
-    """Helper function to translate a list of options"""
-    if language.lower() == "hindi":
-        return [translator.to_hindi(opt) for opt in options]
-    return options
+    user_data_manager = UserDataManager(config.user_data_file)
+    return config, logger, rag, db, user_data_manager
 
 async def process_question(question: str):
     """Process user question and generate response"""
     try:
-        # Translate to English if needed
-        english_question = translator.to_english(question) if st.session_state.language == "hindi" else question
-        
         # Get relevant documents
-        relevant_docs = db.search(english_question)
+        relevant_docs = db.search(question)
         context = rag.create_context(relevant_docs)
         
         # Generate answer
         answer = await rag.get_answer(
-            english_question, 
+            question, 
             context, 
             st.session_state.metadata,
             st.session_state.language
         )
         
-        # Generate follow-up questions
-        follow_up = await question_gen.generate_questions(
-            english_question,
-            answer,
-            st.session_state.metadata,
-            st.session_state.language
-        )
+        # Extract any metadata from the user's response
+        new_metadata = MetadataExtractor.extract_metadata(question)
+        if new_metadata:
+            st.session_state.metadata.update(new_metadata)
+            user_data_manager.save_user_data(st.session_state.session_id, st.session_state.metadata)
         
         # Log interaction
         logger.log_interaction(question, answer, st.session_state.metadata)
@@ -228,7 +136,6 @@ async def process_question(question: str):
         st.session_state.messages.append({
             "role": "assistant",
             "content": answer,
-            "questions": follow_up,
             "message_id": st.session_state.message_counter
         })
         
@@ -240,7 +147,7 @@ def main():
     init_session_state()
     
     # Initialize components
-    config, logger, question_gen, rag, db, translator = initialize_components()
+    config, logger, rag, db, user_data_manager = initialize_components()
     
     # Language selector
     with st.sidebar:
@@ -252,25 +159,26 @@ def main():
         st.session_state.language = language.lower()
     
     # Title
-    st.title("🌱 " + get_translated_text("GAPL Starter Product Assistant", st.session_state.language))
+    title = "GAPL Starter Product Assistant" if st.session_state.language == "english" else "GAPL Starter उत्पाद सहायक"
+    st.title("🌱 " + title)
     
-    # Collect metadata if not already done
-    if not st.session_state.metadata_collected:
-        if collect_metadata():
-            st.rerun()
-    
-    # Display metadata summary
-    if st.session_state.metadata_collected:
+    # Display metadata if available
+    if any(st.session_state.metadata.values()):
         with st.sidebar:
-            st.markdown("### " + get_translated_text("User Information", st.session_state.language))
+            st.markdown("### " + ("User Information" if st.session_state.language == "english" else "उपयोगकर्ता की जानकारी"))
             for key, value in st.session_state.metadata.items():
                 if value:
-                    st.write(f"**{get_translated_text(key.replace('_', ' ').title(), st.session_state.language)}:** {value}")
+                    key_display = {
+                        'mobile_number': 'Mobile' if st.session_state.language == "english" else 'मोबाइल',
+                        'location': 'Location' if st.session_state.language == "english" else 'स्थान',
+                        'crop_name': 'Crop' if st.session_state.language == "english" else 'फसल'
+                    }.get(key, key)
+                    st.write(f"**{key_display}:** {value}")
     
     # Welcome message for new chat
     if not st.session_state.messages:
-        welcome_msg = get_translated_text(
-            """
+        welcome_msg = {
+            "english": """
             👋 Welcome! I'm your GAPL Starter product expert. I can help you with:
             - Product benefits and features
             - Application methods and timing
@@ -280,9 +188,18 @@ def main():
             
             Choose a question below or ask your own!
             """,
-            st.session_state.language
-        )
-        st.markdown(welcome_msg)
+            "hindi": """
+            👋 नमस्ते! मैं आपका GAPL Starter उत्पाद विशेषज्ञ हूं। मैं आपकी इन विषयों में मदद कर सकता हूं:
+            - उत्पाद के लाभ और विशेषताएं
+            - उपयोग की विधि और समय
+            - मात्रा की सिफारिशें
+            - फसल अनुकूलता
+            - तकनीकी विवरण
+            
+            नीचे दिए गए प्रश्नों में से चुनें या अपना प्रश्न पूछें!
+            """
+        }
+        st.markdown(welcome_msg[st.session_state.language])
         
         # Display initial questions as buttons
         cols = st.columns(2)
@@ -303,24 +220,18 @@ def main():
                 f'<div class="assistant-message">🌱 {message["content"]}</div>',
                 unsafe_allow_html=True
             )
-            
-            # Display follow-up questions
-            if message.get("questions"):
-                cols = st.columns(len(message["questions"]))
-                for i, question in enumerate(message["questions"]):
-                    if cols[i].button(
-                        question,
-                        key=f"followup_{message['message_id']}_{i}",
-                        use_container_width=True
-                    ):
-                        asyncio.run(process_question(question))
     
     # Input area
     with st.container():
+        placeholder = {
+            "english": "Type your question here...",
+            "hindi": "अपना प्रश्न यहाँ लिखें..."
+        }
+        
         user_input = st.text_input(
-            get_translated_text("Ask me anything about GAPL Starter:", st.session_state.language),
+            "Ask me anything about GAPL Starter:" if st.session_state.language == "english" else "GAPL Starter के बारे में कुछ भी पूछें:",
             key="user_input",
-            placeholder=get_translated_text("Type your question here...", st.session_state.language)
+            placeholder=placeholder[st.session_state.language]
         )
         
         if user_input:
@@ -329,8 +240,10 @@ def main():
         
         # Clear chat button
         cols = st.columns([4, 1])
-        if cols[1].button(get_translated_text("Clear Chat", st.session_state.language)):
-            if st.sidebar.button("⚠️ " + get_translated_text("Confirm Clear", st.session_state.language)):
+        clear_text = "Clear Chat" if st.session_state.language == "english" else "चैट साफ़ करें"
+        if cols[1].button(clear_text):
+            confirm_text = "Confirm Clear" if st.session_state.language == "english" else "पुष्टि करें"
+            if st.sidebar.button("⚠️ " + confirm_text):
                 st.session_state.messages = []
                 st.session_state.chat_memory.clear_history()
                 st.session_state.message_counter = 0
