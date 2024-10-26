@@ -70,11 +70,6 @@ class QuestionGenerator:
             Answer: {answer}
             
             Generate 4 relevant follow-up questions that a customer might ask about GAPL Starter.
-            Focus on:
-            - Application methods and timing
-            - Benefits and effectiveness
-            - Compatibility with specific crops
-            - Scientific backing and results
             
             Return ONLY the numbered questions (1-4), one per line.
             """
