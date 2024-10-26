@@ -1,7 +1,7 @@
 import streamlit as st
 from typing import List, Dict, Any
 import asyncio
-from core import ChatConfig, ChatLogger, ChatMemory, QuestionGenerator, GeminiRAG, ProductDatabase
+from core import ChatConfig, ChatLogger, ChatMemory, QuestionGenerator, GeminiRAG, ProductDatabase, UserInfoParser
 
 # Initialize session state
 if 'chat_memory' not in st.session_state:
