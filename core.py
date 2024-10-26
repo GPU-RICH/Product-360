@@ -24,6 +24,73 @@ class CustomerInfo:
     crop_type: str
     name: Optional[str] = None
 
+
+class CustomerDatabase:
+    """Handles customer information storage in JSON"""
+    def __init__(self, file_path: str = "customer_data.json"):
+        self.file_path = Path(file_path)
+        self._ensure_file_exists()
+    
+    def _ensure_file_exists(self):
+        """Create the JSON file if it doesn't exist"""
+        if not self.file_path.exists():
+            self.file_path.write_text("{}", encoding="utf-8")
+    
+    def save_customer(self, customer_info: CustomerInfo) -> None:
+        """Save customer information to JSON file"""
+        try:
+            # Read existing data
+            data = self._read_data()
+            
+            # Update with new customer info
+            data[customer_info.mobile] = {
+                "location": customer_info.location,
+                "purchase_status": customer_info.purchase_status,
+                "crop_type": customer_info.crop_type,
+                "name": customer_info.name,
+                "last_updated": datetime.now().isoformat()
+            }
+            
+            # Write back to file
+            with self.file_path.open("w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+                
+        except Exception as e:
+            logging.error(f"Error saving customer data: {str(e)}")
+            raise
+    
+    def get_customer(self, mobile: str) -> Optional[CustomerInfo]:
+        """Retrieve customer information by mobile number"""
+        try:
+            data = self._read_data()
+            if mobile in data:
+                customer_data = data[mobile]
+                return CustomerInfo(
+                    mobile=mobile,
+                    location=customer_data["location"],
+                    purchase_status=customer_data["purchase_status"],
+                    crop_type=customer_data["crop_type"],
+                    name=customer_data.get("name")
+                )
+            return None
+        except Exception as e:
+            logging.error(f"Error retrieving customer data: {str(e)}")
+            return None
+    
+    def _read_data(self) -> Dict[str, Any]:
+        """Read the JSON file"""
+        try:
+            with self.file_path.open("r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logging.error(f"Error reading customer data: {str(e)}")
+            return {}
+
+    def customer_exists(self, mobile: str) -> bool:
+        """Check if a customer exists in the database"""
+        data = self._read_data()
+        return mobile in data
+        
 @dataclass
 class ChatConfig:
     """Configuration for the chatbot"""
