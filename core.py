@@ -36,7 +36,7 @@ class ChatConfig:
     max_history: int = 3
     gemini_api_key: str = "AIzaSyBS_DFCJh82voYIKoglS-ow6ezGNg775pg"
     log_file: str = "chat_history.txt"
-    user_data_file: str = "user_data.json"
+    user_data_file: str = "farmer_data.json"
 
 class UserDataManager:
     """Manages user data collection and storage"""
