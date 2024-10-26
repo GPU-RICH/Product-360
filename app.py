@@ -277,7 +277,16 @@ def generate_unique_key(prefix: str, identifier: Any) -> str:
     """Generate a unique key for Streamlit elements"""
     timestamp = int(time.time() * 1000)  # millisecond timestamp
     return f"{prefix}_{identifier}_{timestamp}"
-
+    
+def handle_submit():
+    """Handle user input submission"""
+    if st.session_state.user_input:
+        st.session_state.submitted_question = st.session_state.user_input
+        st.session_state.user_input = ""
+        asyncio.run(process_question(st.session_state.submitted_question))
+        st.session_state.submitted_question = None
+        st.rerun()
+        
 def main():
     # Language selector in sidebar
     with st.sidebar:
@@ -342,13 +351,13 @@ def main():
                     ):
                         asyncio.run(process_question(question))
     
-   # Chat input with unique key
-    input_key = generate_unique_key("input", len(st.session_state.messages))
+   # Chat input with proper label
     st.text_input(
-        "",
-        key=input_key,
+        label=UI_TEXT[st.session_state.language].get('input_label', "Your question"),  # Added proper label
+        key=f"user_input_{int(time.time()*1000)}",  # Simplified unique key
         placeholder=UI_TEXT[st.session_state.language]['input_placeholder'],
-        on_change=lambda: handle_submit() if st.session_state.user_input else None
+        label_visibility="collapsed",  # Hide label but maintain accessibility
+        on_change=handle_submit
     )
     
     # Clear chat button with unique key
@@ -363,14 +372,7 @@ def main():
         st.session_state.chat_memory.clear_history()
         st.rerun()
 
-def handle_submit():
-    """Handle user input submission"""
-    if st.session_state.user_input:
-        st.session_state.submitted_question = st.session_state.user_input
-        st.session_state.user_input = ""
-        asyncio.run(process_question(st.session_state.submitted_question))
-        st.session_state.submitted_question = None
-        st.rerun()
+
 
 if __name__ == "__main__":
     main()
