@@ -9,7 +9,6 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.embeddings import Embeddings
 import google.generativeai as genai
 from datetime import datetime
-import json
 
 @dataclass
 class ChatConfig:
@@ -19,7 +18,6 @@ class ChatConfig:
     max_history: int = 3
     gemini_api_key: str = "AIzaSyBS_DFCJh82voYIKoglS-ow6ezGNg775pg"  # Replace with your API key
     log_file: str = "chat_history.txt"
-    user_data_file: str = "user_data.json"
 
 class ChatLogger:
     """Logger for chat interactions"""
@@ -229,141 +227,3 @@ class ProductDatabase:
         except Exception as e:
             logging.error(f"Error during search: {str(e)}")
             return []
-
-def load_user_data(user_data_file: str) -> Dict[str, Any]:
-    """Loads user data from a JSON file"""
-    try:
-        with open(user_data_file, 'r') as f:
-            user_data = json.load(f)
-        return user_data
-    except FileNotFoundError:
-        return {}
-
-def save_user_data(user_data: Dict[str, Any], user_data_file: str):
-    """Saves user data to a JSON file"""
-    with open(user_data_file, 'w') as f:
-        json.dump(user_data, f, indent=4)
-
-def extract_user_info(question: str, user_data: Dict[str, Any]) -> Optional[Dict[str, str]]:
-    """Extracts user information from the question"""
-    extracted_info = {}
-    
-    if "mobile" in question.lower() or "phone" in question.lower():
-        if "mobile" in question.lower():
-            mobile_number = question.split("mobile")[1].strip()
-        else:
-            mobile_number = question.split("phone")[1].strip()
-        if mobile_number.isdigit() and len(mobile_number) == 10:
-            extracted_info["mobile_number"] = mobile_number
-            user_data["mobile_number"] = mobile_number
-    
-    if "location" in question.lower() or "pincode" in question.lower():
-        if "location" in question.lower():
-            location = question.split("location")[1].strip()
-        else:
-            location = question.split("pincode")[1].strip()
-        extracted_info["location"] = location
-        user_data["location"] = location
-    
-    if "purchase" in question.lower() or "bought" in question.lower():
-        if "purchase" in question.lower():
-            purchase_status = question.split("purchase")[1].strip()
-        else:
-            purchase_status = question.split("bought")[1].strip()
-        if purchase_status.lower() in ["yes", "no", "planning to purchase"]:
-            extracted_info["purchase_status"] = purchase_status
-            user_data["purchase_status"] = purchase_status
-    
-    if "crop" in question.lower():
-        crop_name = question.split("crop")[1].strip()
-        extracted_info["crop_name"] = crop_name
-        user_data["crop_name"] = crop_name
-    
-    if "name" in question.lower():
-        name = question.split("name")[1].strip()
-        extracted_info["name"] = name
-        user_data["name"] = name
-    
-    if extracted_info:
-        save_user_data(user_data, config.user_data_file)
-        return extracted_info
-    else:
-        return None
-
-class ChatBot:
-    """Main chatbot class"""
-    def __init__(self, config: ChatConfig):
-        self.config = config
-        self.logger = ChatLogger(config.log_file)
-        self.question_gen = QuestionGenerator(config.gemini_api_key)
-        self.rag = GeminiRAG(config.gemini_api_key)
-        self.db = ProductDatabase(config)
-        self.chat_memory = ChatMemory(config.max_history)
-        self.user_data = load_user_data(config.user_data_file)
-        
-    def load_database(self):
-        """Loads the product database"""
-        with open("STARTER.md", "r", encoding="utf-8") as f:
-            markdown_content = f.read()
-        self.db.process_markdown(markdown_content)
-        
-    async def process_question(self, question: str) -> str:
-        """Processes the user's question"""
-        try:
-            extracted_info = extract_user_info(question, self.user_data)
-            
-            relevant_docs = self.db.search(question)
-            context = self.rag.create_context(relevant_docs)
-            answer = await self.rag.get_answer(question, context)
-            follow_up_questions = await self.question_gen.generate_questions(question, answer)
-            
-            self.chat_memory.add_interaction(question, answer)
-            self.logger.log_interaction(question, answer)
-            
-            # Add user info to the answer if available
-            if extracted_info:
-                answer += f"\n\nBased on your information, I can provide more tailored advice. "
-                for key, value in extracted_info.items():
-                    answer += f"You mentioned your {key} is {value}. "
-            
-            return answer, follow_up_questions
-            
-        except Exception as e:
-            logging.error(f"Error processing question: {str(e)}")
-            return "I apologize, but I'm having trouble processing your request. Please try again.", []
-
-    def get_initial_questions(self) -> List[str]:
-        """Returns a list of initial questions"""
-        return [
-            "What are the main benefits of GAPL Starter?",
-            "How do I apply GAPL Starter correctly?",
-            "Which crops is GAPL Starter suitable for?",
-            "What is the recommended dosage?"
-        ]
-
-    def get_user_data(self) -> Dict[str, Any]:
-        """Returns the user data"""
-        return self.user_data
-
-    def clear_chat_history(self):
-        """Clears the chat history"""
-        self.chat_memory.clear_history()
-
-if __name__ == "__main__":
-    config = ChatConfig()
-    chatbot = ChatBot(config)
-    chatbot.load_database()
-    
-    # Example usage
-    while True:
-        question = input("You: ")
-        if question.lower() == "exit":
-            break
-        
-        answer, follow_up_questions = asyncio.run(chatbot.process_question(question))
-        print(f"Bot: {answer}")
-        
-        if follow_up_questions:
-            print("Follow-up questions:")
-            for i, q in enumerate(follow_up_questions):
-                print(f"{i+1}. {q}")
