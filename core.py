@@ -16,7 +16,7 @@ class ChatConfig:
     embedding_model_name: str = 'all-MiniLM-L6-v2'
     device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
     max_history: int = 3
-    gemini_api_key: str = "YOUR_API_KEY_HERE"  # Replace with your API key
+    gemini_api_key: str = "AIzaSyBS_DFCJh82voYIKoglS-ow6ezGNg775pg"  # Replace with your API key
     log_file: str = "chat_history.txt"
 
 class ChatLogger:
