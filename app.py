@@ -88,6 +88,26 @@ try:
 except Exception as e:
     st.error(f"Error loading database: {str(e)}")
 
+def farmer_info_to_dict(farmer_info: FarmerInfo) -> dict:
+    """Convert FarmerInfo object to dictionary"""
+    return {
+        "mobile": farmer_info.mobile,
+        "location": farmer_info.location,
+        "crop_type": farmer_info.crop_type,
+        "purchase_status": farmer_info.purchase_status,
+        "name": farmer_info.name
+    }
+
+def dict_to_farmer_info(data: dict) -> FarmerInfo:
+    """Convert dictionary to FarmerInfo object"""
+    return FarmerInfo(
+        mobile=data["mobile"],
+        location=data["location"],
+        crop_type=data["crop_type"],
+        purchase_status=data["purchase_status"],
+        name=data["name"]
+    )
+    
 def initialize_farmer_form():
     """Create a form to collect farmer information"""
     st.markdown("### 👨‍🌾 Welcome to GAPL Starter Assistant!")
@@ -119,13 +139,14 @@ def initialize_farmer_form():
         
         if submitted:
             if mobile and location and crop_type and purchase_status:
-                return FarmerInfo(
+                farmer_info = FarmerInfo(
                     mobile=mobile,
                     location=location,
                     crop_type=crop_type,
                     purchase_status=purchase_status,
                     name=name if name else None
                 )
+                return farmer_info_to_dict(farmer_info)  # Return dictionary instead of FarmerInfo object
             else:
                 st.error("Please fill in all required fields marked with *")
                 return None
@@ -133,30 +154,33 @@ def initialize_farmer_form():
 
 async def process_question(question: str):
     try:
+        # Convert dictionary back to FarmerInfo object for processing
+        farmer_info = dict_to_farmer_info(st.session_state.farmer_info) if st.session_state.farmer_info else None
+        
         relevant_docs = db.search(question)
         context = rag.create_context(relevant_docs)
         answer = await rag.get_answer(
             question, 
             context, 
-            st.session_state.farmer_info,
+            farmer_info,
             st.session_state.language
         )
         follow_up_questions = await question_gen.generate_questions(
             question, 
             answer,
-            st.session_state.farmer_info,
+            farmer_info,
             st.session_state.language
         )
         
         st.session_state.chat_memory.add_interaction(
             question, 
             answer,
-            st.session_state.farmer_info
+            farmer_info
         )
         logger.log_interaction(
             question, 
             answer,
-            st.session_state.farmer_info
+            farmer_info
         )
         
         st.session_state.message_counter += 1
@@ -174,6 +198,19 @@ async def process_question(question: str):
         })
     except Exception as e:
         st.error(f"Error processing question: {str(e)}")
+
+def display_farmer_info():
+    """Display current farmer information"""
+    farmer_dict = st.session_state.farmer_info
+    if farmer_dict:
+        with st.sidebar:
+            st.markdown("### 👨‍🌾 Farmer Details")
+            st.markdown(f"""
+            🌾 **Crop**: {farmer_dict['crop_type']}  
+            📍 **Location**: {farmer_dict['location']}  
+            🛒 **Status**: {farmer_dict['purchase_status']}  
+            👤 **Name**: {farmer_dict['name'] or 'Anonymous'}
+            """)
 
 def display_initial_questions():
     """Display initial contextual questions based on farmer info"""
@@ -233,9 +270,9 @@ def main():
     
     # Main content
     if not st.session_state.farmer_info:
-        farmer_info = initialize_farmer_form()
-        if farmer_info:
-            st.session_state.farmer_info = farmer_info
+        farmer_info_dict = initialize_farmer_form()
+        if farmer_info_dict:
+            st.session_state.farmer_info = farmer_info_dict  # Store dictionary in session state
             st.rerun()
     else:
         st.title("🌱 GAPL Starter Product Assistant")
