@@ -118,34 +118,6 @@ def handle_submit():
         st.session_state.submitted_question = st.session_state.user_input
         st.session_state.user_input = ""
 
-def handle_user_info_submit():
-    if st.session_state.user_info_input:
-        user_input = st.session_state.user_info_input
-        st.session_state.messages.append({
-            "role": "user",
-            "content": user_input,
-            "message_id": st.session_state.message_counter
-        })
-        # Initialize UserInfoParser
-        user_info_parser = UserInfoParser(config.gemini_api_key)
-        # Parse user info
-        user_info = asyncio.run(user_info_parser.parse_user_info(user_input))
-        st.session_state.user_info = user_info
-        st.session_state.user_info_collected = True
-        st.session_state.message_counter += 1
-        
-        # Add confirmation message
-        confirmation_message = f"""Thank you for providing your information! I'll be happy to help you with any questions about GAPL Starter.
-
-You can choose from the questions below or ask your own!"""
-        
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": confirmation_message,
-            "message_id": st.session_state.message_counter
-        })
-        st.session_state.user_info_input = ""
-
 
 def main():
     st.title("🌱 GAPL Starter Product Assistant")
@@ -180,20 +152,111 @@ Please provide your:
                     f'<div class="assistant-message">🌱 {message["content"]}</div>',
                     unsafe_allow_html=True
                 )
-        
-        # Input area for user information with submit button
-        col1, col2 = st.columns([3, 1])
-        with col1:
+
+        # Create a form for user information
+        with st.form(key='user_info_form'):
             user_input = st.text_input(
                 "Please provide your information:",
                 key="user_info_input",
                 placeholder="Example: My name is John and my phone number is 1234567890. I grow wheat and rice in Delhi"
             )
-        with col2:
-            if st.button("Submit", key="submit_user_info"):
-                if user_input:
-                    handle_user_info_submit()
-                    st.rerun()
+            submit_button = st.form_submit_button("Submit")
+            
+            if submit_button and user_input:
+                # Initialize UserInfoParser
+                user_info_parser = UserInfoParser(config.gemini_api_key)
+                # Parse user info
+                user_info = asyncio.run(user_info_parser.parse_user_info(user_input))
+                st.session_state.user_info = user_info
+                st.session_state.user_info_collected = True
+                
+                # Add user message to chat history
+                st.session_state.messages.append({
+                    "role": "user",
+                    "content": user_input,
+                    "message_id": st.session_state.message_counter
+                })
+                
+                # Add confirmation message
+                confirmation_message = f"""Thank you for providing your information! I'll be happy to help you with any questions about GAPL Starter.
+
+You can choose from the questions below or ask your own!"""
+                
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": confirmation_message,
+                    "message_id": st.session_state.message_counter + 1
+                })
+                
+                st.session_state.message_counter += 2
+                st.rerun()
+    
+    # Rest of your existing main() function code for normal chat interaction
+    else:
+        # Welcome message
+        if not st.session_state.messages:
+            st.markdown("""
+            👋 Welcome! I'm your GAPL Starter product expert. I can help you learn about:
+            - Product benefits and features
+            - Application methods and timing
+            - Dosage recommendations
+            - Crop compatibility
+            - Technical specifications
+            
+            Choose a question below or ask your own!
+            """)
+            
+            # Display initial questions as buttons
+            cols = st.columns(2)
+            for i, question in enumerate(st.session_state.initial_questions):
+                if cols[i % 2].button(question, key=f"initial_{i}", use_container_width=True):
+                    asyncio.run(process_question(question))
+        
+        # Display chat history
+        for message in st.session_state.messages:
+            if message["role"] == "user":
+                st.markdown(
+                    f'<div class="user-message">👤 {message["content"]}</div>',
+                    unsafe_allow_html=True
+                )
+            else:
+                st.markdown(
+                    f'<div class="assistant-message">🌱 {message["content"]}</div>',
+                    unsafe_allow_html=True
+                )
+                
+                if message.get("questions"):
+                    cols = st.columns(2)
+                    for i, question in enumerate(message["questions"]):
+                        if cols[i % 2].button(
+                            question,
+                            key=f"followup_{message['message_id']}_{i}",
+                            use_container_width=True
+                        ):
+                            asyncio.run(process_question(question))
+        
+        # Input area
+        with st.container():
+            st.text_input(
+                "Ask me anything about GAPL Starter:",
+                key="user_input",
+                placeholder="Type your question here...",
+                on_change=handle_submit
+            )
+            
+            # Process submitted question
+            if st.session_state.submitted_question:
+                asyncio.run(process_question(st.session_state.submitted_question))
+                st.session_state.submitted_question = None
+                st.rerun()
+            
+            cols = st.columns([4, 1])
+            # Clear chat button
+            if cols[1].button("Clear Chat", use_container_width=True):
+                st.session_state.messages = []
+                st.session_state.chat_memory.clear_history()
+                st.session_state.message_counter = 0
+                st.rerun()
     # Rest of your existing main() function code for normal chat interaction
     else:
         st.title("🌱 GAPL Starter Product Assistant")
