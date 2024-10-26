@@ -17,7 +17,16 @@ if 'message_counter' not in st.session_state:
 if 'submitted_question' not in st.session_state:
     st.session_state.submitted_question = None
 if 'customer_db' not in st.session_state:
-    st.session_state.customer_db = CustomerDatabase()
+    try:
+        # Try to use a file in the app's directory first
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        data_dir = os.path.join(app_dir, 'data')
+        os.makedirs(data_dir, exist_ok=True)
+        file_path = os.path.join(data_dir, 'customer_data.json')
+        st.session_state.customer_db = CustomerDatabase(file_path)
+    except Exception as e:
+        # Fall back to temp directory if app directory is not writable
+        st.session_state.customer_db = CustomerDatabase()
 if 'initial_questions' not in st.session_state:
     st.session_state.initial_questions = {
         Language.HINDI: [
