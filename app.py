@@ -98,7 +98,7 @@ def initialize_components():
     user_data_manager = UserDataManager(config.user_data_file)
     return config, logger, rag, db, user_data_manager
 
-config, logger, rag, db = initialize_components()
+config, logger, rag, db, user_data_manager = initialize_components()
 
 @st.cache_resource
 def load_database():
