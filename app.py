@@ -268,7 +268,8 @@ def main():
             - Dosage recommendations
             - Crop compatibility
             - Technical specifications
-            
+
+            You can watch the product video here: youtube.com
             Choose a question below or ask your own!
             """
         }
