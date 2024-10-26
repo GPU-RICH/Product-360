@@ -124,7 +124,7 @@ class GeminiRAG:
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
         self.generation_config = {
-            "temperature": 0.7,
+            "temperature": 0.2,
             "top_p": 0.95,
             "top_k": 64,
             "max_output_tokens": 8192,
