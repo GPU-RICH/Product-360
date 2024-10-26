@@ -25,16 +25,36 @@ class CustomerInfo:
     name: Optional[str] = None
 
 
+import os
+import json
+from pathlib import Path
+from typing import Optional, Dict, Any
+import tempfile
+
 class CustomerDatabase:
     """Handles customer information storage in JSON"""
-    def __init__(self, file_path: str = "customer_data.json"):
-        self.file_path = Path(file_path)
+    def __init__(self, file_path: str = None):
+        if file_path is None:
+            # Use system temp directory if no path provided
+            temp_dir = tempfile.gettempdir()
+            self.file_path = Path(temp_dir) / "customer_data.json"
+        else:
+            self.file_path = Path(file_path)
+            
+        # Create parent directories if they don't exist
+        self.file_path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_file_exists()
     
     def _ensure_file_exists(self):
         """Create the JSON file if it doesn't exist"""
-        if not self.file_path.exists():
-            self.file_path.write_text("{}", encoding="utf-8")
+        try:
+            if not self.file_path.exists():
+                self.file_path.write_text("{}", encoding="utf-8")
+        except Exception as e:
+            logging.error(f"Error creating file: {str(e)}")
+            # Use memory-only fallback if file operations fail
+            self._data = {}
+            self._use_memory = True
     
     def save_customer(self, customer_info: CustomerInfo) -> None:
         """Save customer information to JSON file"""
@@ -52,8 +72,13 @@ class CustomerDatabase:
             }
             
             # Write back to file
-            with self.file_path.open("w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=4)
+            try:
+                with self.file_path.open("w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=4)
+            except Exception as e:
+                logging.error(f"Error writing to file: {str(e)}")
+                self._data = data  # Store in memory if file write fails
+                self._use_memory = True
                 
         except Exception as e:
             logging.error(f"Error saving customer data: {str(e)}")
@@ -78,7 +103,10 @@ class CustomerDatabase:
             return None
     
     def _read_data(self) -> Dict[str, Any]:
-        """Read the JSON file"""
+        """Read the JSON file or return in-memory data"""
+        if hasattr(self, '_use_memory') and self._use_memory:
+            return getattr(self, '_data', {})
+            
         try:
             with self.file_path.open("r", encoding="utf-8") as f:
                 return json.load(f)
