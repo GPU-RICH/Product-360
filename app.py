@@ -13,6 +13,7 @@ from core import (
 )
 import uuid
 import json
+import time
 
 # Enhanced session state initialization
 if 'session_id' not in st.session_state:
@@ -175,7 +176,7 @@ if db is None:
 def handle_data_collection():
     """Handles the data collection form"""
     if st.session_state.show_data_collection and st.session_state.current_data_field:
-        with st.form("data_collection_form", clear_on_submit=True):
+        with st.form(generate_unique_key("form", "data_collection")):
             st.subheader(UI_TEXT[st.session_state.language]['data_collection_title'])
             
             field = st.session_state.current_data_field
@@ -184,24 +185,29 @@ def handle_data_collection():
             if field == 'mobile_number':
                 value = st.text_input(
                     TRANSLATIONS[st.session_state.language]['mobile_prompt'],
+                    key=generate_unique_key("input", "mobile"),
                     max_chars=10
                 )
             elif field == 'location':
                 value = st.text_input(
-                    TRANSLATIONS[st.session_state.language]['location_prompt']
+                    TRANSLATIONS[st.session_state.language]['location_prompt'],
+                    key=generate_unique_key("input", "location")
                 )
             elif field == 'crop':
                 value = st.text_input(
-                    TRANSLATIONS[st.session_state.language]['crop_prompt']
+                    TRANSLATIONS[st.session_state.language]['crop_prompt'],
+                    key=generate_unique_key("input", "crop")
                 )
             elif field == 'purchase_status':
                 value = st.radio(
                     TRANSLATIONS[st.session_state.language]['purchase_prompt'],
                     ['Yes', 'No', 'Planning to purchase'] if st.session_state.language == 'en' else 
-                    ['हां', 'नहीं', 'खरीदने की योजना है']
+                    ['हां', 'नहीं', 'खरीदने की योजना है'],
+                    key=generate_unique_key("radio", "purchase")
                 )
             
-            if st.form_submit_button(UI_TEXT[st.session_state.language]['submit']):
+            submit_key = generate_unique_key("submit", field)
+            if st.form_submit_button(UI_TEXT[st.session_state.language]['submit'], key=submit_key):
                 if value:
                     st.session_state.user_data[field] = value
                     user_manager.save_user_data(st.session_state.session_id, st.session_state.user_data)
@@ -267,6 +273,11 @@ def handle_language_change():
     st.session_state.chat_memory.clear_history()
     st.rerun()
 
+def generate_unique_key(prefix: str, identifier: Any) -> str:
+    """Generate a unique key for Streamlit elements"""
+    timestamp = int(time.time() * 1000)  # millisecond timestamp
+    return f"{prefix}_{identifier}_{timestamp}"
+
 def main():
     # Language selector in sidebar
     with st.sidebar:
@@ -295,14 +306,19 @@ def main():
     if not st.session_state.messages:
         st.markdown(UI_TEXT[st.session_state.language]['welcome'])
         
-        # Display initial questions as buttons
+        # Display initial questions as buttons with unique keys
         cols = st.columns(2)
         for i, question in enumerate(INITIAL_QUESTIONS[st.session_state.language]):
-            if cols[i % 2].button(question, key=f"initial_{i}", use_container_width=True):
+            unique_key = generate_unique_key("initial", i)
+            if cols[i % 2].button(
+                question, 
+                key=unique_key, 
+                use_container_width=True
+            ):
                 asyncio.run(process_question(question))
     
     # Display chat history
-    for message in st.session_state.messages:
+    for msg_idx, message in enumerate(st.session_state.messages):
         if message["role"] == "user":
             st.markdown(
                 f'<div class="user-message">👤 {message["content"]}</div>',
@@ -317,25 +333,32 @@ def main():
             if message.get("questions"):
                 st.markdown(f"_{TRANSLATIONS[st.session_state.language]['follow_up_prefix']}_")
                 cols = st.columns(2)
-                for i, question in enumerate(message["questions"]):
-                    if cols[i % 2].button(
+                for q_idx, question in enumerate(message["questions"]):
+                    unique_key = generate_unique_key("followup", f"{msg_idx}_{q_idx}")
+                    if cols[q_idx % 2].button(
                         question,
-                        key=f"followup_{i}_{len(st.session_state.messages)}",
+                        key=unique_key,
                         use_container_width=True
                     ):
                         asyncio.run(process_question(question))
     
-    # Chat input
+   # Chat input with unique key
+    input_key = generate_unique_key("input", len(st.session_state.messages))
     st.text_input(
         "",
-        key="user_input",
+        key=input_key,
         placeholder=UI_TEXT[st.session_state.language]['input_placeholder'],
         on_change=lambda: handle_submit() if st.session_state.user_input else None
     )
     
-    # Clear chat button
+    # Clear chat button with unique key
     cols = st.columns([4, 1])
-    if cols[1].button(UI_TEXT[st.session_state.language]['clear_chat'], use_container_width=True):
+    clear_key = generate_unique_key("clear", "chat")
+    if cols[1].button(
+        UI_TEXT[st.session_state.language]['clear_chat'], 
+        key=clear_key,
+        use_container_width=True
+    ):
         st.session_state.messages = []
         st.session_state.chat_memory.clear_history()
         st.rerun()
