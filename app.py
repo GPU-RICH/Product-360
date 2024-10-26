@@ -1,6 +1,8 @@
 import streamlit as st
 from typing import List, Dict, Any
 import asyncio
+import json
+from datetime import datetime
 from core import ChatConfig, ChatLogger, ChatMemory, QuestionGenerator, GeminiRAG, ProductDatabase, UserInfoParser
 
 # Initialize session state
@@ -19,7 +21,6 @@ if 'message_counter' not in st.session_state:
     st.session_state.message_counter = 0
 if 'submitted_question' not in st.session_state:
     st.session_state.submitted_question = None
-# Add these to your existing session state initializations
 if 'user_info_collected' not in st.session_state:
     st.session_state.user_info_collected = False
 if 'user_info' not in st.session_state:
@@ -87,11 +88,36 @@ try:
 except Exception as e:
     st.error(f"Error loading database: {str(e)}")
 
+def save_user_info(user_info: Dict[str, Any]):
+    """Save user information to a JSON file"""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    data = {
+        "timestamp": timestamp,
+        **user_info
+    }
+    
+    try:
+        # Load existing data
+        try:
+            with open("user_info.json", "r") as f:
+                existing_data = json.load(f)
+        except FileNotFoundError:
+            existing_data = []
+        
+        # Append new data
+        existing_data.append(data)
+        
+        # Save updated data
+        with open("user_info.json", "w") as f:
+            json.dump(existing_data, f, indent=4)
+    except Exception as e:
+        st.error(f"Error saving user information: {str(e)}")
+
 async def process_question(question: str):
     try:
         relevant_docs = db.search(question)
         context = rag.create_context(relevant_docs)
-        answer = await rag.get_answer(question, context)
+        answer = await rag.get_answer(question, context, st.session_state.user_info)
         follow_up_questions = await question_gen.generate_questions(question, answer)
         
         st.session_state.chat_memory.add_interaction(question, answer)
@@ -112,6 +138,11 @@ async def process_question(question: str):
         })
     except Exception as e:
         st.error(f"Error processing question: {str(e)}")
+
+def handle_submit():
+    if st.session_state.user_input:
+        st.session_state.submitted_question = st.session_state.user_input
+        st.session_state.user_input = ""
 
 def main():
     st.title("🌱 GAPL Starter Product Assistant")
@@ -165,6 +196,9 @@ Please provide your:
                 st.session_state.user_info = user_info
                 st.session_state.user_info_collected = True
                 
+                # Save user info to file
+                save_user_info(user_info)
+                
                 # Add user message to chat history
                 st.session_state.messages.append({
                     "role": "user",
@@ -212,17 +246,10 @@ You can choose from the questions below or ask your own!"""
                         ):
                             asyncio.run(process_question(question))
         
-        # Display initial questions if this is the first interaction
+        # Display initial questions if this is the first interaction after user info
         if len(st.session_state.messages) <= 2:  # Only user info and confirmation message
             st.markdown("""
-            👋 Welcome! I'm your GAPL Starter product expert. I can help you learn about:
-            - Product benefits and features
-            - Application methods and timing
-            - Dosage recommendations
-            - Crop compatibility
-            - Technical specifications
-            
-            Choose a question below or ask your own!
+            👋 Choose a question below or ask your own!
             """)
             
             # Display initial questions as buttons
@@ -249,6 +276,7 @@ You can choose from the questions below or ask your own!"""
                     st.session_state.chat_memory.clear_history()
                     st.session_state.message_counter = 0
                     st.session_state.user_info_collected = False
+                    st.session_state.user_info = None
                     st.rerun()
             
             # Process submitted question
@@ -256,11 +284,6 @@ You can choose from the questions below or ask your own!"""
                 asyncio.run(process_question(st.session_state.submitted_question))
                 st.session_state.submitted_question = None
                 st.rerun()
-
-def handle_submit():
-    if st.session_state.user_input:
-        st.session_state.submitted_question = st.session_state.user_input
-        st.session_state.user_input = ""
 
 if __name__ == "__main__":
     main()
