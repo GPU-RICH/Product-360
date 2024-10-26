@@ -1,261 +1,254 @@
-import os
-import logging
-from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
-from enum import Enum
-import torch
-from sentence_transformers import SentenceTransformer
-from langchain_community.vectorstores import FAISS
-from langchain_core.embeddings import Embeddings
-import google.generativeai as genai
-from datetime import datetime
+import streamlit as st
+from typing import List, Dict, Any
+import asyncio
+from core import ChatConfig, ChatLogger, ChatMemory, QuestionGenerator, GeminiRAG, ProductDatabase, Language
 
-class Language(Enum):
-    ENGLISH = "english"
-    HINDI = "hindi"
-
-@dataclass
-class ChatConfig:
-    """Configuration for the chatbot"""
-    embedding_model_name: str = 'all-MiniLM-L6-v2'
-    device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
-    max_history: int = 3
-    gemini_api_key: str = "AIzaSyBS_DFCJh82voYIKoglS-ow6ezGNg775pg"  # Replace with your API key
-    log_file: str = "chat_history.txt"
-    default_language: Language = Language.ENGLISH
-
-class ChatLogger:
-    """Logger for chat interactions"""
-    def __init__(self, log_file: str):
-        self.log_file = log_file
+# UI Text translations
+UI_TEXT = {
+    Language.ENGLISH: {
+        "title": "🌱 GAPL Starter Product Assistant",
+        "welcome_message": """
+        👋 Welcome! I'm your GAPL Starter product expert. I can help you learn about:
+        - Product benefits and features
+        - Application methods and timing
+        - Dosage recommendations
+        - Crop compatibility
+        - Technical specifications
         
-    def log_interaction(self, question: str, answer: str, language: Language):
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with open(self.log_file, 'a', encoding='utf-8') as f:
-            f.write(f"\n[{timestamp}] [{language.value}]\nQ: {question}\nA: {answer}\n{'-'*50}")
-
-class ChatMemory:
-    """Manages chat history"""
-    def __init__(self, max_history: int = 3):
-        self.max_history = max_history
-        self.history = []
+        Choose a question below or ask your own!
+        """,
+        "input_placeholder": "Type your question here...",
+        "input_label": "Ask me anything about GAPL Starter:",
+        "clear_chat": "Clear Chat",
+        "language_selector": "Select Language",
+        "initial_questions": [
+            "What are the main benefits of GAPL Starter?",
+            "How do I apply GAPL Starter correctly?",
+            "Which crops is GAPL Starter suitable for?",
+            "What is the recommended dosage?"
+        ]
+    },
+    Language.HINDI: {
+        "title": "🌱 GAPL स्टार्टर उत्पाद सहायक",
+        "welcome_message": """
+        👋 नमस्ते! मैं आपका GAPL स्टार्टर उत्पाद विशेषज्ञ हूं। मैं आपको इन विषयों में मदद कर सकता हूं:
+        - उत्पाद के लाभ और विशेषताएं
+        - प्रयोग विधि और समय
+        - खुराक की सिफारिशें
+        - फसल अनुकूलता
+        - तकनीकी विवरण
         
-    def add_interaction(self, question: str, answer: str):
-        self.history.append({"question": question, "answer": answer})
-        if len(self.history) > self.max_history:
-            self.history.pop(0)
-            
-    def get_history(self) -> List[Dict[str, str]]:
-        return self.history
+        नीचे दिए गए प्रश्नों में से चुनें या अपना प्रश्न पूछें!
+        """,
+        "input_placeholder": "अपना प्रश्न यहां टाइप करें...",
+        "input_label": "GAPL स्टार्टर के बारे में कुछ भी पूछें:",
+        "clear_chat": "चैट साफ़ करें",
+        "language_selector": "भाषा चुनें",
+        "initial_questions": [
+            "GAPL स्टार्टर के मुख्य लाभ क्या हैं?",
+            "GAPL स्टार्टर का प्रयोग कैसे करें?",
+            "GAPL स्टार्टर किन फसलों के लिए उपयुक्त है?",
+            "अनुशंसित मात्रा क्या है?"
+        ]
+    }
+}
+
+# Initialize session state
+if 'chat_memory' not in st.session_state:
+    st.session_state.chat_memory = ChatMemory()
+if 'messages' not in st.session_state:
+    st.session_state.messages = []
+if 'message_counter' not in st.session_state:
+    st.session_state.message_counter = 0
+if 'submitted_question' not in st.session_state:
+    st.session_state.submitted_question = None
+if 'language' not in st.session_state:
+    st.session_state.language = Language.ENGLISH
+
+# Configure the page
+st.set_page_config(
+    page_title="GAPL Starter Assistant",
+    page_icon="🌱",
+    layout="wide"
+)
+
+# Custom CSS
+st.markdown("""
+<style>
+.user-message {
+    background-color: #72BF6A;
+    color: black;
+    padding: 15px;
+    border-radius: 15px;
+    margin: 10px 0;
+}
+.assistant-message {
+    background-color: #000000;
+    color: #98FB98;
+    padding: 15px;
+    border-radius: 15px;
+    margin: 10px 0;
+}
+.stButton > button {
+    background-color: #212B2A;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 5px;
+    transition: background-color 0.3s;
+}
+.stButton > button:hover {
+    background-color: #45a049;
+}
+.language-selector {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 1000;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# Initialize components
+@st.cache_resource
+def initialize_components():
+    config = ChatConfig()
+    logger = ChatLogger(config.log_file)
+    question_gen = QuestionGenerator(config.gemini_api_key)
+    rag = GeminiRAG(config.gemini_api_key)
+    db = ProductDatabase(config)
+    return config, logger, question_gen, rag, db
+
+config, logger, question_gen, rag, db = initialize_components()
+
+# Load product database
+@st.cache_resource
+def load_database():
+    with open("STARTER.md", "r", encoding="utf-8") as f:
+        markdown_content = f.read()
+    db.process_markdown(markdown_content)
+
+try:
+    load_database()
+except Exception as e:
+    st.error(f"Error loading database: {str(e)}")
+
+async def process_question(question: str):
+    try:
+        relevant_docs = db.search(question)
+        context = rag.create_context(relevant_docs)
+        answer = await rag.get_answer(question, context, st.session_state.language)
+        follow_up_questions = await question_gen.generate_questions(
+            question, 
+            answer, 
+            st.session_state.language
+        )
+        
+        st.session_state.chat_memory.add_interaction(question, answer)
+        logger.log_interaction(question, answer, st.session_state.language)
+        
+        st.session_state.message_counter += 1
+        
+        st.session_state.messages.append({
+            "role": "user",
+            "content": question,
+            "message_id": st.session_state.message_counter
+        })
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": answer,
+            "questions": follow_up_questions,
+            "message_id": st.session_state.message_counter
+        })
+    except Exception as e:
+        st.error(f"Error processing question: {str(e)}")
+
+def handle_submit():
+    if st.session_state.user_input:
+        st.session_state.submitted_question = st.session_state.user_input
+        st.session_state.user_input = ""
+
+def handle_language_change():
+    # Clear chat when language changes
+    st.session_state.messages = []
+    st.session_state.chat_memory.clear_history()
+    st.session_state.message_counter = 0
+    st.rerun()
+
+def main():
+    # Language selector
+    with st.container():
+        cols = st.columns([3, 1])
+        with cols[1]:
+            selected_language = st.selectbox(
+                UI_TEXT[st.session_state.language]["language_selector"],
+                options=[Language.ENGLISH, Language.HINDI],
+                format_func=lambda x: "English" if x == Language.ENGLISH else "हिंदी",
+                key="language_selector",
+                index=0 if st.session_state.language == Language.ENGLISH else 1,
+                on_change=handle_language_change
+            )
+            st.session_state.language = selected_language
+
+    current_text = UI_TEXT[st.session_state.language]
     
-    def clear_history(self):
-        self.history = []
-
-class QuestionGenerator:
-    """Generates follow-up questions using Gemini"""
-    def __init__(self, api_key: str):
-        genai.configure(api_key=api_key)
-        self.generation_config = {
-            "temperature": 0.2,
-            "top_p": 0.95,
-            "top_k": 64,
-            "max_output_tokens": 2048,
-        }
-        self.model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            generation_config=self.generation_config
-        )
+    st.title(current_text["title"])
+    
+    # Welcome message
+    if not st.session_state.messages:
+        st.markdown(current_text["welcome_message"])
         
-    async def generate_questions(self, question: str, answer: str, language: Language) -> List[str]:
-        try:
-            chat = self.model.start_chat(history=[])
-            
-            language_instruction = (
-                "Return the questions in Hindi." if language == Language.HINDI
-                else "Return the questions in English."
+        # Display initial questions as buttons
+        cols = st.columns(2)
+        for i, question in enumerate(current_text["initial_questions"]):
+            if cols[i % 2].button(question, key=f"initial_{i}", use_container_width=True):
+                asyncio.run(process_question(question))
+    
+    # Display chat history
+    for message in st.session_state.messages:
+        if message["role"] == "user":
+            st.markdown(
+                f'<div class="user-message">👤 {message["content"]}</div>',
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                f'<div class="assistant-message">🌱 {message["content"]}</div>',
+                unsafe_allow_html=True
             )
             
-            prompt = f"""Based on this product information interaction:
-            
-            Question: {question}
-            Answer: {answer}
-            
-            Generate 4 relevant follow-up questions that a customer might ask about GAPL Starter.
-            Focus on:
-            - Application methods and timing
-            - Benefits and effectiveness
-            - Compatibility with specific crops
-            - Scientific backing and results
-            
-            {language_instruction}
-            Return ONLY the numbered questions (1-4), one per line.
-            """
-            
-            response = chat.send_message(prompt).text
-            
-            questions = []
-            for line in response.split('\n'):
-                line = line.strip()
-                if line and (line.startswith('1.') or line.startswith('2.') or 
-                           line.startswith('3.') or line.startswith('4.')):
-                    questions.append(line.split('.', 1)[1].strip())
-            
-            default_questions = {
-                Language.ENGLISH: [
-                    "Can you provide more details about GAPL Starter?",
-                    "What are the application methods?",
-                    "What results can I expect to see?",
-                    "Is it safe for all soil types?"
-                ],
-                Language.HINDI: [
-                    "क्या आप GAPL Starter के बारे में और जानकारी दे सकते हैं?",
-                    "इसे कैसे प्रयोग करें?",
-                    "मुझे क्या परिणाम देखने को मिलेंगे?",
-                    "क्या यह सभी प्रकार की मिट्टी के लिए सुरक्षित है?"
-                ]
-            }
-            
-            while len(questions) < 4:
-                questions.append(default_questions[language][len(questions)])
-            
-            return questions[:4]
-            
-        except Exception as e:
-            logging.error(f"Error generating questions: {str(e)}")
-            return default_questions[language]
-
-class GeminiRAG:
-    """RAG implementation using Gemini"""
-    def __init__(self, api_key: str):
-        genai.configure(api_key=api_key)
-        self.generation_config = {
-            "temperature": 0.1,
-            "top_p": 0.95,
-            "top_k": 64,
-            "max_output_tokens": 8192,
-        }
-        self.model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            generation_config=self.generation_config
+            if message.get("questions"):
+                cols = st.columns(2)
+                for i, question in enumerate(message["questions"]):
+                    if cols[i % 2].button(
+                        question,
+                        key=f"followup_{message['message_id']}_{i}",
+                        use_container_width=True
+                    ):
+                        asyncio.run(process_question(question))
+    
+    # Input area
+    with st.container():
+        st.text_input(
+            current_text["input_label"],
+            key="user_input",
+            placeholder=current_text["input_placeholder"],
+            on_change=handle_submit
         )
         
-    def create_context(self, relevant_docs: List[Dict[str, Any]]) -> str:
-        """Creates a context string from relevant documents"""
-        return "\n\n".join(doc['content'] for doc in relevant_docs)
+        # Process submitted question
+        if st.session_state.submitted_question:
+            asyncio.run(process_question(st.session_state.submitted_question))
+            st.session_state.submitted_question = None
+            st.rerun()
         
-    async def get_answer(self, question: str, context: str, language: Language) -> str:
-        try:
-            chat = self.model.start_chat(history=[])
-            
-            language_instruction = (
-                "Respond in fluent Hindi, using Devanagari script." if language == Language.HINDI
-                else "Respond in English."
-            )
-            
-            prompt = f"""You are an expert agricultural consultant specializing in GAPL Starter bio-fertilizer. 
-            You have extensive hands-on experience with the product and deep knowledge of its applications and benefits.
-            
-            {language_instruction}
-            
-            Background information to inform your response:
-            {context}
+        cols = st.columns([4, 1])
+        # Clear chat button
+        if cols[1].button(current_text["clear_chat"], use_container_width=True):
+            st.session_state.messages = []
+            st.session_state.chat_memory.clear_history()
+            st.session_state.message_counter = 0
+            st.rerun()
 
-            Question from farmer: {question}
-
-            Respond naturally as an expert would, without referencing any "provided information" or documentation.
-            Your response should be:
-            - Confident and authoritative
-            - Direct and practical
-            - Focused on helping farmers succeed
-            - Based on product expertise
-
-            If you don't have enough specific information to answer the question, respond appropriately in the specified language 
-            acknowledging the limitations while sharing what you do know about the product.
-
-            Remember to maintain a helpful, expert tone throughout your response.
-            """
-            
-            response = chat.send_message(prompt)
-            return response.text
-            
-        except Exception as e:
-            logging.error(f"Error generating answer: {str(e)}")
-            default_error = {
-                Language.ENGLISH: "I apologize, but I'm having trouble processing your request. Please try again.",
-                Language.HINDI: "क्षमा करें, मैं आपके प्रश्न को प्रोसेस करने में असमर्थ हूं। कृपया पुनः प्रयास करें।"
-            }
-            return default_error[language]
-
-class CustomEmbeddings(Embeddings):
-    """Custom embeddings using SentenceTransformer"""
-    def __init__(self, model_name: str, device: str):
-        self.model = SentenceTransformer(model_name)
-        self.model.to(device)
-        
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        with torch.no_grad():
-            embeddings = self.model.encode(texts, convert_to_tensor=True)
-            return embeddings.cpu().numpy().tolist()
-            
-    def embed_query(self, text: str) -> List[float]:
-        with torch.no_grad():
-            embedding = self.model.encode([text], convert_to_tensor=True)
-            return embedding.cpu().numpy().tolist()[0]
-
-class ProductDatabase:
-    """Handles document storage and retrieval"""
-    def __init__(self, config: ChatConfig):
-        self.embeddings = CustomEmbeddings(
-            model_name=config.embedding_model_name,
-            device=config.device
-        )
-        self.vectorstore = None
-        
-    def process_markdown(self, markdown_content: str):
-        """Process markdown content and create vector store"""
-        try:
-            # Split the content into sections
-            sections = markdown_content.split('\n## ')
-            documents = []
-            
-            # Process the first section (intro)
-            if sections[0].startswith('# '):
-                intro = sections[0].split('\n', 1)[1]
-                documents.append({
-                    "content": intro,
-                    "section": "Introduction"
-                })
-            
-            # Process remaining sections
-            for section in sections[1:]:
-                if section.strip():
-                    title, content = section.split('\n', 1)
-                    documents.append({
-                        "content": content.strip(),
-                        "section": title.strip()
-                    })
-            
-            # Create vector store
-            texts = [doc["content"] for doc in documents]
-            metadatas = [{"section": doc["section"]} for doc in documents]
-            
-            self.vectorstore = FAISS.from_texts(
-                texts=texts,
-                embedding=self.embeddings,
-                metadatas=metadatas
-            )
-            
-        except Exception as e:
-            raise Exception(f"Error processing markdown content: {str(e)}")
-        
-    def search(self, query: str, k: int = 3) -> List[Dict[str, Any]]:
-        """Search for relevant documents"""
-        if not self.vectorstore:
-            raise ValueError("Database not initialized. Please process documents first.")
-        
-        try:
-            docs = self.vectorstore.similarity_search(query, k=k)
-            return [{"content": doc.page_content, "metadata": doc.metadata} for doc in docs]
-        except Exception as e:
-            logging.error(f"Error during search: {str(e)}")
-            return []
+if __name__ == "__main__":
+    main()
