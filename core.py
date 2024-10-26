@@ -114,7 +114,7 @@ class CustomerDatabase:
 class ResponseParser:
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel("gemini-1.0-pro")
+        self.model = genai.GenerativeModel("gemini-1.5-flash")
 
     async def parse_user_response(self, question: str, answer: str, field: str) -> tuple[bool, str]:
         prompt = f"""
@@ -154,7 +154,7 @@ class ChatConfig:
     embedding_model_name: str = 'all-MiniLM-L6-v2'
     device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
     max_history: int = 3
-    gemini_api_key: str = "YOUR_API_KEY"
+    gemini_api_key: str = "AIzaSyBS_DFCJh82voYIKoglS-ow6ezGNg775pg"
     log_file: str = "chat_history.txt"
 
 class ChatLogger:
