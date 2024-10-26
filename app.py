@@ -139,31 +139,39 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize components
+# Load product database
+@st.cache_resource
+def initialize_database():
+    try:
+        with open("STARTER.md", "r", encoding="utf-8") as f:
+            markdown_content = f.read()
+        
+        config = ChatConfig()
+        db = ProductDatabase(config)
+        db.process_markdown(markdown_content)
+        return db
+    except Exception as e:
+        st.error(f"Error initializing database: {str(e)}")
+        return None
+
+# Modified initialization
 @st.cache_resource
 def initialize_components():
     config = ChatConfig()
     logger = ChatLogger(config.log_file)
     question_gen = QuestionGenerator(config.gemini_api_key)
     rag = GeminiRAG(config.gemini_api_key)
-    db = ProductDatabase(config)
     user_manager = UserDataManager(config.user_data_file)
+    db = initialize_database()  # Initialize database here
     return config, logger, question_gen, rag, db, user_manager
 
 config, logger, question_gen, rag, db, user_manager = initialize_components()
 
-# Load product database
-@st.cache_resource
-def load_database():
-    with open("STARTER.md", "r", encoding="utf-8") as f:
-        markdown_content = f.read()
-    db.process_markdown(markdown_content)
-
-try:
-    load_database()
-except Exception as e:
-    st.error(f"Error loading database: {str(e)}")
-
+# Add a check for database initialization
+if db is None:
+    st.error("Failed to initialize the product database. Please check if STARTER.md exists and is properly formatted.")
+    st.stop()
+    
 def handle_data_collection():
     """Handles the data collection form"""
     if st.session_state.show_data_collection and st.session_state.current_data_field:
