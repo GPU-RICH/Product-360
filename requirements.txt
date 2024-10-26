@@ -9,3 +9,4 @@ google-generativeai
 dataclasses
 faiss-cpu
 streamlit
+googletrans==3.1.0a0
