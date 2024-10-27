@@ -118,86 +118,49 @@ class ChatMemory:
     def clear_history(self):
         self.history = []
 
-class Translator:
-    """Handles translation between English and Hindi using Gemini"""
+class SimpleTranslator:
+    """Simple translator that converts English responses to Hindi"""
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
-        self.generation_config = {
-            "temperature": 0.1,  # Low temperature for more accurate translations
-            "top_p": 0.95,
-            "top_k": 64,
-            "max_output_tokens": 8192,
-        }
         self.model = genai.GenerativeModel(
             model_name="gemini-1.5-flash",
-            generation_config=self.generation_config
+            generation_config={
+                "temperature": 0.1,
+                "top_p": 0.95,
+                "max_output_tokens": 8192,
+            }
         )
-        
-    async def translate_to_hindi(self, text: str) -> str:
+    
+    async def to_hindi(self, english_text: str) -> str:
         """Translates English text to Hindi"""
         try:
             chat = self.model.start_chat(history=[])
+            prompt = f"""Translate the following English text to Hindi. Use Devanagari script.
+            Keep technical terms in English with Hindi translation in brackets.
+            Maintain the same formatting and structure.
+            Make it natural and farmer-friendly.
             
-            # First, set translation context
-            system_prompt = """You are a professional translator specializing in English to Hindi translation.
-            Follow these rules strictly:
-            1. Translate the given text to fluent, natural Hindi
-            2. Use Devanagari script only
-            3. Keep technical terms in English but add Hindi translation in parentheses
-            4. Maintain the original formatting and structure
-            5. Ensure the translation is culturally appropriate for Indian farmers"""
+            Text to translate:
+            {english_text}"""
             
-            chat.send_message(system_prompt)
-            
-            # Send the text for translation
-            translation_prompt = f"""Translate the following English text to Hindi:
-
-            {text}
-            
-            Rules:
-            - Translate everything to Hindi using Devanagari script
-            - Keep agricultural/technical terms in both English and Hindi
-            - Maintain any formatting, lists, or structure from the original
-            - Make it sound natural and fluent in Hindi"""
-            
-            response = chat.send_message(translation_prompt)
-            translated_text = response.text
-            
-            # Verify the translation contains Devanagari
-            if not any(ord(c) >= 0x900 and ord(c) <= 0x97F for c in translated_text):
-                # If no Devanagari found, try one more time with stronger prompt
-                retry_prompt = """पिछला अनुवाद देवनागरी में नहीं था। कृपया इस टेक्स्ट का अनुवाद पूरी तरह से हिंदी में करें:
-
-                {text}
-                
-                अनुवाद बिल्कुल हिंदी में होना चाहिए और देवनागरी लिपि में होना चाहिए।"""
-                
-                response = chat.send_message(retry_prompt)
-                translated_text = response.text
-            
-            return translated_text
-            
+            response = chat.send_message(prompt)
+            return response.text
         except Exception as e:
             logging.error(f"Translation error: {str(e)}")
-            return text  # Return original text if translation fails
-    
-    def is_hindi(self, text: str) -> bool:
-        """Checks if text contains Hindi characters"""
-        return any(ord(c) >= 0x900 and ord(c) <= 0x97F for c in text)
+            return "अनुवाद में त्रुटि। कृपया पुनः प्रयास करें।"
         
 class QuestionGenerator:
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
-        self.generation_config = {
-            "temperature": 0.2,
-            "top_p": 0.95,
-            "top_k": 64,
-            "max_output_tokens": 2048,
-        }
         self.model = genai.GenerativeModel(
             model_name="gemini-1.5-flash",
-            generation_config=self.generation_config
+            generation_config={
+                "temperature": 0.2,
+                "top_p": 0.95,
+                "max_output_tokens": 2048,
+            }
         )
+        self.translator = SimpleTranslator(api_key)
         
     async def generate_questions(
         self, 
@@ -207,75 +170,18 @@ class QuestionGenerator:
         user_info: Optional[UserInfo] = None
     ) -> List[str]:
         try:
+            # Always generate questions in English first
+            prompt = f"""Based on this conversation:
+            Question: {question}
+            Answer: {answer}
+            
+            Generate 4 relevant follow-up questions a farmer might ask.
+            Number each question (1-4) and put each on a new line."""
+            
             chat = self.model.start_chat(history=[])
+            response = chat.send_message(prompt).text
             
-            # First, set the language context
-            if language == Language.HINDI:
-                system_prompt = """You are now in Hindi-only mode. 
-                इस चैट में आप केवल हिंदी में प्रश्न तैयार करेंगे।
-                सभी प्रश्न देवनागरी लिपि में होने चाहिए।
-                अंग्रेजी का प्रयोग बिल्कुल नहीं करना है।"""
-            else:
-                system_prompt = "You are now in English-only mode. Generate all questions in English only."
-                
-            chat.send_message(system_prompt)
-            
-            # Build the main prompt with strong language enforcement
-            language_instruction = (
-                """आपको सभी प्रश्न केवल हिंदी में बनाने हैं। प्रत्येक प्रश्न देवनागरी लिपि में होना चाहिए।
-                किसी भी स्थिति में अंग्रेजी का प्रयोग न करें।"""
-                if language == Language.HINDI
-                else "Generate all questions in English only."
-            )
-            
-            user_context = ""
-            if user_info:
-                user_context = (
-                    f"""
-                    निम्नलिखित जानकारी के आधार पर प्रश्न तैयार करें:
-                    - किसान: {user_info.name}
-                    - स्थान: {user_info.location}
-                    - उत्पाद खरीदा: {'हां' if user_info.has_purchased else 'नहीं'}
-                    - फसल: {user_info.crop_type}
-                    """
-                    if language == Language.HINDI
-                    else f"""
-                    Consider this context while generating questions:
-                    - Farmer: {user_info.name}
-                    - Location: {user_info.location}
-                    - Has purchased: {'Yes' if user_info.has_purchased else 'No'}
-                    - Crop: {user_info.crop_type}
-                    """
-                )
-            
-            base_prompt = (
-                f"""इस बातचीत के आधार पर प्रश्न तैयार करें:
-
-                पिछला प्रश्न: {question}
-                दिया गया उत्तर: {answer}
-
-                {language_instruction}
-        
-                {user_context}
-
-                कृपया 4 संबंधित प्रश्न तैयार करें जो एक किसान पूछ सकता है।
-                प्रत्येक प्रश्न नई लाइन में लिखें और क्रमांक दें (1-4)।"""
-                if language == Language.HINDI
-                else f"""Based on this conversation:
-
-                Previous question: {question}
-                Given answer: {answer}
-
-                {language_instruction}
-               
-                {user_context}
-
-                Generate 4 relevant follow-up questions a farmer might ask.
-                Number each question (1-4) and put each on a new line."""
-            )
-            
-            response = chat.send_message(base_prompt).text
-            
+            # Extract questions
             questions = []
             for line in response.split('\n'):
                 line = line.strip()
@@ -283,17 +189,18 @@ class QuestionGenerator:
                            line.startswith('3.') or line.startswith('4.')):
                     questions.append(line.split('.', 1)[1].strip())
             
-            # Verify language and retry if needed for Hindi
-            if language == Language.HINDI and not all(any(ord(c) >= 0x900 and ord(c) <= 0x97F for c in q) for q in questions):
-                force_hindi = """आपके प्रश्न हिंदी में नहीं थे। कृपया सभी प्रश्न पूरी तरह से हिंदी में दोबारा तैयार करें।"""
-                response = chat.send_message(force_hindi).text
-                questions = []
-                for line in response.split('\n'):
-                    line = line.strip()
-                    if line and (line.startswith('1.') or line.startswith('2.') or 
-                               line.startswith('3.') or line.startswith('4.')):
-                        questions.append(line.split('.', 1)[1].strip())
+            # Translate questions if Hindi is requested
+            if language == Language.HINDI:
+                translated_questions = []
+                for q in questions:
+                    hindi_q = await self.translator.to_hindi(q)
+                    translated_questions.append(hindi_q)
+                return translated_questions[:4]
             
+            return questions[:4]
+            
+        except Exception as e:
+            logging.error(f"Error generating questions: {str(e)}")
             default_questions = {
                 Language.ENGLISH: [
                     "Can you provide more details about the product?",
@@ -308,16 +215,7 @@ class QuestionGenerator:
                     "क्या यह सभी प्रकार की मिट्टी के लिए सुरक्षित है?"
                 ]
             }
-            
-            while len(questions) < 4:
-                questions.append(default_questions[language][len(questions)])
-            
-            return questions[:4]
-            
-        except Exception as e:
-            logging.error(f"Error generating questions: {str(e)}")
             return default_questions[language]
-
 class ImageProcessor:
     """Handles image processing and analysis using Gemini"""
     def __init__(self, api_key: str):
@@ -391,18 +289,16 @@ class ImageProcessor:
 class GeminiRAG:
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
-        self.generation_config = {
-            "temperature": 0.1,
-            "top_p": 0.95,
-            "top_k": 64,
-            "max_output_tokens": 8192,
-        }
         self.model = genai.GenerativeModel(
             model_name="gemini-1.5-flash",
-            generation_config=self.generation_config
+            generation_config={
+                "temperature": 0.1,
+                "top_p": 0.95,
+                "max_output_tokens": 8192,
+            }
         )
+        self.translator = SimpleTranslator(api_key)
         self.image_processor = ImageProcessor(api_key)
-        self.translator = Translator(api_key)
         
     async def get_answer(
         self, 
@@ -412,41 +308,33 @@ class GeminiRAG:
         user_info: Optional[UserInfo] = None,
         image: Optional[bytes] = None
     ) -> str:
-        if image:
-            response = await self.image_processor.process_image_query(
-                image,
-                question,
-                Language.ENGLISH,  # Always get English response first
-                user_info
-            )
-            if language == Language.HINDI:
-                return await self.translator.translate_to_hindi(response)
-            return response
-        
         try:
-            # Get response in English first
-            context_prompt = f"""
+            # Always get English response first
+            prompt = f"""You are an agricultural expert helping farmers.
+            
             Context: {context}
             
-            Farmer Info:
+            Farmer Information:
             Name: {user_info.name if user_info else 'Unknown'}
             Location: {user_info.location if user_info else 'Unknown'}
             Crop: {user_info.crop_type if user_info else 'Unknown'}
             
-            Farmer's Question: {question}
-            """
+            Question: {question}
             
+            Provide a clear, practical, and detailed response."""
+            
+            # Get response in English
             chat = self.model.start_chat(history=[])
-            response = chat.send_message(context_prompt).text
+            response = chat.send_message(prompt).text
             
-            # Translate to Hindi if needed
+            # If Hindi is requested, translate the response
             if language == Language.HINDI:
-                return await self.translator.translate_to_hindi(response)
+                return await self.translator.to_hindi(response)
             
             return response
             
         except Exception as e:
-            logging.error(f"Error generating answer: {str(e)}")
+            logging.error(f"Error in get_answer: {str(e)}")
             return ("क्षमा करें, तकनीकी समस्या। कृपया पुनः प्रयास करें।" 
                     if language == Language.HINDI 
                     else "Sorry, technical error. Please try again.")
