@@ -84,6 +84,7 @@ UI_TEXT = {
 
 # Initialize session state
 def init_session_state():
+    """Initialize all session state variables"""
     if 'chat_memory' not in st.session_state:
         st.session_state.chat_memory = ChatMemory()
     if 'messages' not in st.session_state:
@@ -100,6 +101,8 @@ def init_session_state():
         st.session_state.selected_product = list(PRODUCT_CONFIG.keys())[0]
     if 'db' not in st.session_state:
         st.session_state.db = None
+    if 'config' not in st.session_state:
+        st.session_state.config = None
 
 # Configure the page
 st.set_page_config(
@@ -171,14 +174,20 @@ def display_product_suggestions():
                 st.markdown(f"**{suggestion['name']}**")
                 st.markdown("---")
                     
+# Initialize components
 @st.cache_resource
 def initialize_components():
-    config = ChatConfig()
-    logger = ChatLogger(config.log_file)
-    question_gen = QuestionGenerator(config.gemini_api_key)
-    rag = GeminiRAG(config.gemini_api_key)
-    user_manager = UserManager(config.user_data_file)
-    return config, logger, question_gen, rag, user_manager
+    """Initialize and cache application components"""
+    try:
+        config = ChatConfig()
+        logger = ChatLogger(config.log_file)
+        question_gen = QuestionGenerator(config.gemini_api_key)
+        rag = GeminiRAG(config.gemini_api_key)
+        user_manager = UserManager(config.user_data_file)
+        return config, logger, question_gen, rag, user_manager
+    except Exception as e:
+        st.error(f"Error initializing components: {str(e)}")
+        raise e
 
 config, logger, question_gen, rag, db, user_manager = initialize_components()
 
@@ -275,9 +284,24 @@ def main():
     init_session_state()
     
     # Initialize components
-    config, logger, question_gen, rag, user_manager = initialize_components()
-    st.session_state.config = config
-    
+    if 'components' not in st.session_state:
+        try:
+            config, logger, question_gen, rag, user_manager = initialize_components()
+            st.session_state.components = {
+                'config': config,
+                'logger': logger,
+                'question_gen': question_gen,
+                'rag': rag,
+                'user_manager': user_manager
+            }
+        except Exception as e:
+            st.error("Failed to initialize components. Please refresh the page.")
+            return
+
+    # Load database for selected product
+    if st.session_state.db is None:
+        st.session_state.db = load_database(st.session_state.selected_product)
+      
     # Product selection in sidebar
     st.sidebar.selectbox(
         UI_TEXT["product_select"],
@@ -285,10 +309,6 @@ def main():
         key="selected_product",
         on_change=lambda: setattr(st.session_state, 'db', load_database(st.session_state.selected_product))
     )
-    
-    # Load database for selected product
-    if st.session_state.db is None:
-        st.session_state.db = load_database(st.session_state.selected_product)
     
     # Add suggestions toggle at the top of sidebar
     st.sidebar.checkbox(
