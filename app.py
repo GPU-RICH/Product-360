@@ -232,24 +232,25 @@ def on_product_change():
     st.session_state.message_counter = 0
 
 async def process_question(question: str, image: Optional[bytes] = None):
+    """Process a question and update the chat state"""
     try:
-        relevant_docs = db.search(question)
-        context = rag.create_context(relevant_docs)
-        answer = await rag.get_answer(
+        relevant_docs = st.session_state.db.search(question)
+        context = st.session_state.rag.create_context(relevant_docs)
+        answer = await st.session_state.rag.get_answer(
             question, 
             context,
             st.session_state.user_info,
             image
         )
         
-        follow_up_questions = await question_gen.generate_questions(
+        follow_up_questions = await st.session_state.question_gen.generate_questions(
             question, 
             answer,
             st.session_state.user_info
         )
         
         st.session_state.chat_memory.add_interaction(question, answer)
-        logger.log_interaction(
+        st.session_state.logger.log_interaction(
             question, 
             answer,
             st.session_state.user_info
@@ -308,32 +309,13 @@ def render_user_form():
                 st.sidebar.warning(UI_TEXT["form_required"])
 
 def main():
-  
+    # Initialize session state
     init_session_state()
-
+    
     # Load initial database and components if not already initialized
     if not st.session_state.initialized:
         load_initial_database()
-      
-    # # Initialize components
-    # if 'components' not in st.session_state:
-    #     try:
-    #         config, logger, question_gen, rag, user_manager = initialize_components()
-    #         st.session_state.components = {
-    #             'config': config,
-    #             'logger': logger,
-    #             'question_gen': question_gen,
-    #             'rag': rag,
-    #             'user_manager': user_manager
-    #         }
-    #     except Exception as e:
-    #         st.error("Failed to initialize components. Please refresh the page.")
-    #         return
-
-    # Load database for selected product
-    if st.session_state.db is None:
-        st.session_state.db = load_database(st.session_state.selected_product)
-      
+    
     # Product selection in sidebar
     st.sidebar.selectbox(
         UI_TEXT["product_select"],
@@ -368,13 +350,7 @@ def main():
         cols = st.columns(2)
         for i, question in enumerate(UI_TEXT["initial_questions"]):
             if cols[i % 2].button(question, key=f"initial_{i}", use_container_width=True):
-                asyncio.run(process_question(
-                    question,
-                    st.session_state.db,
-                    rag,
-                    question_gen,
-                    logger
-                ))
+                asyncio.run(process_question(question))
     
     # Display chat history
     for message in st.session_state.messages:
@@ -408,13 +384,7 @@ def main():
                         key=f"followup_{message['message_id']}_{i}",
                         use_container_width=True
                     ):
-                        asyncio.run(process_question(
-                            question,
-                            st.session_state.db,
-                            rag,
-                            question_gen,
-                            logger
-                        ))
+                        asyncio.run(process_question(question))
     
     # Input area with image upload
     with st.container():
@@ -454,10 +424,6 @@ def main():
             with st.spinner(UI_TEXT["image_processing"] if image_bytes else ""):
                 asyncio.run(process_question(
                     st.session_state.submitted_question,
-                    st.session_state.db,
-                    rag,
-                    question_gen,
-                    logger,
                     image_bytes
                 ))
             
@@ -476,60 +442,6 @@ def main():
             st.session_state.message_counter = 0
             st.session_state.image_upload = None
             st.rerun()
-
-async def process_question(
-    question: str,
-    db: ProductDatabase,
-    rag: GeminiRAG,
-    question_gen: QuestionGenerator,
-    logger: ChatLogger,
-    image: Optional[bytes] = None
-):
-    """Process a question and update the chat state"""
-    try:
-        relevant_docs = db.search(question)
-        context = rag.create_context(relevant_docs)
-        answer = await rag.get_answer(
-            question, 
-            context,
-            st.session_state.user_info,
-            image
-        )
-        
-        follow_up_questions = await question_gen.generate_questions(
-            question, 
-            answer,
-            st.session_state.user_info
-        )
-        
-        st.session_state.chat_memory.add_interaction(question, answer)
-        logger.log_interaction(
-            question, 
-            answer,
-            st.session_state.user_info
-        )
-        
-        st.session_state.message_counter += 1
-        
-        message_content = {
-            "text": question,
-            "has_image": image is not None
-        }
-        
-        st.session_state.messages.append({
-            "role": "user",
-            "content": message_content,
-            "message_id": st.session_state.message_counter
-        })
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": answer,
-            "questions": follow_up_questions,
-            "message_id": st.session_state.message_counter
-        })
-    except Exception as e:
-        st.error(f"प्रश्न प्रोसेस करने में त्रुटि: {str(e)}")
-        logging.error(f"Error processing question: {str(e)}")
 
 def handle_submit():
     """Handle the submission of user input"""
