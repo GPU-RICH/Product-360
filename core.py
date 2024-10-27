@@ -1,20 +1,17 @@
 import os
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Union
 from dataclasses import dataclass
 from enum import Enum
 import torch
-from PIL import Image
 from sentence_transformers import SentenceTransformer
-from transformers import CLIPProcessor, CLIPModel
 from langchain_community.vectorstores import FAISS
 from langchain_core.embeddings import Embeddings
 import google.generativeai as genai
 from datetime import datetime
 import json
-import numpy as np
-from pathlib import Path
-import pandas as pd
+from PIL import Image
+import io
 
 class Language(Enum):
     ENGLISH = "english"
@@ -33,86 +30,12 @@ class UserInfo:
 class ChatConfig:
     """Configuration for the chatbot"""
     embedding_model_name: str = 'all-MiniLM-L6-v2'
-    clip_model_name: str = 'openai/clip-vit-base-patch32'
     device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
     max_history: int = 3
     gemini_api_key: str = "AIzaSyBS_DFCJh82voYIKoglS-ow6ezGNg775pg"  # Replace with your API key
     log_file: str = "chat_history.txt"
     user_data_file: str = "user_data.json"
-    image_data_file: str = "image_data.json"
     default_language: Language = Language.ENGLISH
-
-class ImageProcessor:
-    """Handles image processing and similarity search"""
-    def __init__(self, config: ChatConfig):
-        self.config = config
-        self.model = CLIPModel.from_pretrained(config.clip_model_name)
-        self.processor = CLIPProcessor.from_pretrained(config.clip_model_name)
-        self.model.to(config.device)
-        self.image_database = self.load_image_database()
-
-    def load_image_database(self) -> Dict:
-        """Load image database from JSON file"""
-        if Path(self.config.image_data_file).exists():
-            with open(self.config.image_data_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        return {}
-
-    def save_image_database(self):
-        """Save image database to JSON file"""
-        with open(self.config.image_data_file, 'w', encoding='utf-8') as f:
-            json.dump(self.image_database, f, indent=4)
-
-    def generate_image_embedding(self, image: Image.Image) -> np.ndarray:
-        """Generate CLIP embedding for an image"""
-        inputs = self.processor(images=image, return_tensors="pt")
-        inputs = {k: v.to(self.config.device) for k, v in inputs.items()}
-        with torch.no_grad():
-            image_features = self.model.get_image_features(**inputs)
-        return image_features.cpu().numpy()
-
-    def add_image(self, 
-                 image_path: str, 
-                 problem_type: str, 
-                 description: str,
-                 solution: str) -> bool:
-        """Add new image and its information to the database"""
-        try:
-            image = Image.open(image_path)
-            embedding = self.generate_image_embedding(image)
-            
-            image_id = f"img_{len(self.image_database)}"
-            
-            self.image_database[image_id] = {
-                "path": str(image_path),
-                "problem_type": problem_type,
-                "description": description,
-                "solution": solution,
-                "embedding": embedding.tolist()
-            }
-            
-            self.save_image_database()
-            return True
-        except Exception as e:
-            logging.error(f"Error adding image: {str(e)}")
-            return False
-
-    def find_similar_images(self, query_image: Image.Image, k: int = 3) -> List[Dict]:
-        """Find similar images using CLIP embeddings"""
-        try:
-            query_embedding = self.generate_image_embedding(query_image)
-            
-            similarities = []
-            for image_id, image_data in self.image_database.items():
-                stored_embedding = np.array(image_data["embedding"])
-                similarity = np.dot(query_embedding.flatten(), stored_embedding.flatten())
-                similarities.append((similarity, image_data))
-            
-            similarities.sort(key=lambda x: x[0], reverse=True)
-            return [item[1] for item in similarities[:k]]
-        except Exception as e:
-            logging.error(f"Error finding similar images: {str(e)}")
-            return []
 
 class UserManager:
     """Manages user information storage and retrieval"""
@@ -126,7 +49,7 @@ class UserManager:
             with open(self.user_data_file, 'w', encoding='utf-8') as f:
                 json.dump({}, f)
     
-    def save_user_info(self, user_info: UserInfo) -> bool:
+    def save_user_info(self, user_info: UserInfo):
         """Save user information to JSON file"""
         try:
             with open(self.user_data_file, 'r+', encoding='utf-8') as f:
@@ -170,19 +93,13 @@ class ChatLogger:
     def __init__(self, log_file: str):
         self.log_file = log_file
         
-    def log_interaction(self, 
-                       question: str, 
-                       answer: str, 
-                       language: Language, 
-                       user_info: Optional[UserInfo] = None,
-                       has_image: bool = False):
+    def log_interaction(self, question: str, answer: str, language: Language, user_info: Optional[UserInfo] = None):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with open(self.log_file, 'a', encoding='utf-8') as f:
             user_context = ""
             if user_info:
                 user_context = f"\nUser: {user_info.name} | Location: {user_info.location} | Crop: {user_info.crop_type}"
-            image_info = "\nImage query: Yes" if has_image else ""
-            f.write(f"\n[{timestamp}] [{language.value}]{user_context}{image_info}\nQ: {question}\nA: {answer}\n{'-'*50}")
+            f.write(f"\n[{timestamp}] [{language.value}]{user_context}\nQ: {question}\nA: {answer}\n{'-'*50}")
 
 class ChatMemory:
     """Manages chat history"""
@@ -190,16 +107,12 @@ class ChatMemory:
         self.max_history = max_history
         self.history = []
         
-    def add_interaction(self, question: str, answer: str, has_image: bool = False):
-        self.history.append({
-            "question": question, 
-            "answer": answer,
-            "has_image": has_image
-        })
+    def add_interaction(self, question: str, answer: str):
+        self.history.append({"question": question, "answer": answer})
         if len(self.history) > self.max_history:
             self.history.pop(0)
             
-    def get_history(self) -> List[Dict[str, Any]]:
+    def get_history(self) -> List[Dict[str, str]]:
         return self.history
     
     def clear_history(self):
@@ -225,8 +138,7 @@ class QuestionGenerator:
         question: str, 
         answer: str, 
         language: Language, 
-        user_info: Optional[UserInfo] = None,
-        has_image: bool = False
+        user_info: Optional[UserInfo] = None
     ) -> List[str]:
         try:
             chat = self.model.start_chat(history=[])
@@ -246,17 +158,19 @@ class QuestionGenerator:
                 - Crop Type: {user_info.crop_type}
                 """
             
-            image_context = "The user shared an image of their crop problem. " if has_image else ""
-            
             prompt = f"""Based on this product information interaction:
             
-            {image_context}
             Question: {question}
             Answer: {answer}
             
             {user_context}
             
-            Generate 4 relevant follow-up questions that a farmer might ask about this product.
+            Generate 4 relevant follow-up questions that a customer might ask about product.
+            Focus on:
+            - Application methods and timing specific to their crop type if mentioned
+            - Benefits and effectiveness for their particular situation
+            - Compatibility with their farming context
+            - Scientific backing and results relevant to their case
             
             {language_instruction}
             Return ONLY the numbered questions (1-4), one per line.
@@ -273,13 +187,13 @@ class QuestionGenerator:
             
             default_questions = {
                 Language.ENGLISH: [
-                    "Can you provide more details about the product?",
+                    "Can you provide more details about product?",
                     "What are the application methods?",
                     "What results can I expect to see?",
                     "Is it safe for all soil types?"
                 ],
                 Language.HINDI: [
-                    "क्या आप के बारे में और जानकारी दे सकते हैं?",
+                    "क्या आप product के बारे में और जानकारी दे सकते हैं?",
                     "इसे कैसे प्रयोग करें?",
                     "मुझे क्या परिणाम देखने को मिलेंगे?",
                     "क्या यह सभी प्रकार की मिट्टी के लिए सुरक्षित है?"
@@ -295,36 +209,116 @@ class QuestionGenerator:
             logging.error(f"Error generating questions: {str(e)}")
             return default_questions[language]
 
-class GeminiRAG:
-    """RAG implementation using Gemini with proper image handling"""
-    def __init__(self, api_key: str, image_processor: ImageProcessor):
+class ImageProcessor:
+    """Handles image processing and analysis using Gemini"""
+    def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
         self.generation_config = {
             "temperature": 0.1,
             "top_p": 0.95,
             "top_k": 64,
             "max_output_tokens": 8192,
-            "response_mime_type": "text/plain",
         }
         self.model = genai.GenerativeModel(
             model_name="gemini-1.5-flash",
             generation_config=self.generation_config
         )
-        self.image_processor = image_processor
+    
+    async def process_image_query(
+        self,
+        image: bytes,
+        query: str,
+        language: Language,
+        user_info: Optional[UserInfo] = None
+    ) -> str:
+        try:
+            chat = self.model.start_chat(history=[])
+            
+            language_instruction = (
+                "Respond in fluent Hindi, using Devanagari script." if language == Language.HINDI
+                else "Respond in English."
+            )
+            
+            user_context = ""
+            if user_info:
+                user_context = f"""
+                Consider this user context while analyzing the image:
+                - You are helping {user_info.name} from {user_info.location}
+                - They {'' if user_info.has_purchased else 'have not '}purchased product
+                - They are growing {user_info.crop_type}
+                """
+            
+            # Upload image to Gemini
+            image_part = {"mime_type": "image/jpeg", "data": image}
+            
+            prompt = f"""You are an expert agricultural consultant specializing in crop health and product bio-fertilizer.
+            
+            {language_instruction}
+            
+            {user_context}
+            
+            Analyze the image and address the user's query: {query}
+            
+            Focus on:
+            1. Identifying any visible issues or concerns
+            2. Providing practical solutions and recommendations
+            3. Explaining how product might help (if relevant)
+            4. Suggesting preventive measures for the future
+            
+            Be specific and actionable in your response."""
+            
+            response = chat.send_message([image_part, prompt])
+            return response.text
+            
+        except Exception as e:
+            logging.error(f"Error processing image query: {str(e)}")
+            default_error = {
+                Language.ENGLISH: "I apologize, but I'm having trouble processing the image. Please try again.",
+                Language.HINDI: "क्षमा करें, मैं छवि को प्रोसेस करने में असमर्थ हूं। कृपया पुनः प्रयास करें।"
+            }
+            return default_error[language]
 
+
+class GeminiRAG:
+    """RAG implementation using Gemini"""
+    def __init__(self, api_key: str):
+        genai.configure(api_key=api_key)
+        self.generation_config = {
+            "temperature": 0.1,
+            "top_p": 0.95,
+            "top_k": 64,
+            "max_output_tokens": 8192,
+        }
+        self.model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",
+            generation_config=self.generation_config
+        )
+        self.image_processor = ImageProcessor(api_key)
+        
     def create_context(self, relevant_docs: List[Dict[str, Any]]) -> str:
         """Creates a context string from relevant documents"""
         return "\n\n".join(doc['content'] for doc in relevant_docs)
-
+        
     async def get_answer(
         self, 
         question: str, 
         context: str, 
         language: Language,
         user_info: Optional[UserInfo] = None,
-        query_image: Optional[Image.Image] = None
-    ) -> Tuple[str, List[Dict]]:
+        image: Optional[bytes] = None
+    ) -> str:
+        """Get answer for text or image-based query"""
+        if image:
+            return await self.image_processor.process_image_query(
+                image,
+                question,
+                language,
+                user_info
+            )
+        
         try:
+            chat = self.model.start_chat(history=[])
+            
             language_instruction = (
                 "Respond in fluent Hindi, using Devanagari script." if language == Language.HINDI
                 else "Respond in English."
@@ -335,82 +329,37 @@ class GeminiRAG:
                 user_context = f"""
                 Consider this user context while generating your response:
                 - You are talking to {user_info.name} from {user_info.location}
-                - They {'' if user_info.has_purchased else 'have not '}purchased the product
+                - They {'' if user_info.has_purchased else 'have not '}purchased product
                 - They are growing {user_info.crop_type}
+                
+                Tailor your response to their specific situation, crop type, and location.
+                If they haven't purchased, focus on benefits and value proposition.
+                If they have purchased, focus on optimal usage and maximizing results.
                 """
+            
+            prompt = f"""You are an expert agricultural consultant specializing in product bio-fertilizer. 
+            You have extensive hands-on experience with the product and deep knowledge of its applications and benefits.
+            
+            {language_instruction}
+            
+            {user_context}
+            
+            Background information to inform your response:
+            {context}
 
-            similar_images = []
-            if query_image:
-                # Save the PIL Image temporarily
-                temp_path = "temp_image.jpg"
-                query_image.save(temp_path, "JPEG")
-                
-                # Upload image to Gemini
-                image_file = genai.upload_file(temp_path, mime_type="image/jpeg")
-                
-                # Find similar cases using CLIP
-                similar_images = self.image_processor.find_similar_images(query_image)
-                
-                # Create image context from similar cases
-                image_context = "\n\n".join([
-                    f"Similar case found:\n"
-                    f"Problem: {img['problem_type']}\n"
-                    f"Description: {img['description']}\n"
-                    f"Solution: {img['solution']}"
-                    for img in similar_images
-                ])
+            Question from farmer: {question}
 
-                # Start chat with image
-                chat = self.model.start_chat(
-                    history=[
-                        {
-                            "role": "user",
-                            "parts": [
-                                image_file,
-                                f"""I am facing this issue with my {user_info.crop_type if user_info else 'crop'}.
-                                Question: {question}
-                                
-                                {language_instruction}
-                                {user_context}
-                                
-                                Consider this product information:
-                                {context}
-                                
-                                Similar cases found:
-                                {image_context}
-                                
-                                Provide a comprehensive response that:
-                                1. Analyzes the crop problem in the image
-                                2. Explains how the product can help
-                                3. Gives specific application recommendations
-                                4. Suggests preventive measures"""
-                            ],
-                        }
-                    ]
-                )
-                
-                # Get response
-                response = chat.send_message("")
-                
-                # Clean up temp file
-                os.remove(temp_path)
-                
-            else:
-                # Text-only query
-                chat = self.model.start_chat()
-                response = chat.send_message(
-                    f"""{question}
-                    
-                    {language_instruction}
-                    {user_context}
-                    
-                    Consider this product information:
-                    {context}
-                    
-                    Provide a detailed response focusing on how the product can help."""
-                )
-
-            return response.text, similar_images
+            Respond naturally as an expert would, without referencing any "provided information" or documentation.
+            Your response should be:
+            - Confident and authoritative
+            - Direct and practical
+            - Focused on helping farmers succeed
+            - Based on product expertise and their specific context
+            - Tailored to their crop type and farming situation
+            """
+            
+            response = chat.send_message(prompt)
+            return response.text
             
         except Exception as e:
             logging.error(f"Error generating answer: {str(e)}")
@@ -418,7 +367,7 @@ class GeminiRAG:
                 Language.ENGLISH: "I apologize, but I'm having trouble processing your request. Please try again.",
                 Language.HINDI: "क्षमा करें, मैं आपके प्रश्न को प्रोसेस करने में असमर्थ हूं। कृपया पुनः प्रयास करें।"
             }
-            return default_error[language], []
+            return default_error[language]
 
 class CustomEmbeddings(Embeddings):
     """Custom embeddings using SentenceTransformer"""
@@ -489,52 +438,3 @@ class ProductDatabase:
         except Exception as e:
             logging.error(f"Error during search: {str(e)}")
             return []
-
-def init_image_database_from_csv(csv_path: str, image_processor: ImageProcessor):
-    """Initialize image database from existing CSV and image files"""
-    try:
-        # Read the CSV file
-        df = pd.read_csv(csv_path, 
-                        names=['affected_part', 'initial_diagnosis', 'symptoms', 
-                              'damage_type', 'problem_image_url'],
-                        sep='\t')
-        
-        print(f"Processing {len(df)} entries from CSV...")
-        
-        for idx, row in df.iterrows():
-            try:
-                # Get image path from URL (assuming last part is filename)
-                image_filename = row['problem_image_url'].split('/')[-1]
-                image_path = Path('images') / image_filename
-                
-                if image_path.exists():
-                    # Create problem description
-                    problem_description = (
-                        f"Initial Diagnosis: {row['initial_diagnosis']}\n"
-                        f"Symptoms: {row['symptoms']}"
-                    )
-                    
-                    # Add to image database
-                    success = image_processor.add_image(
-                        image_path=str(image_path),
-                        problem_type=row['affected_part'],
-                        description=problem_description,
-                        solution=row['damage_type']
-                    )
-                    
-                    if success:
-                        print(f"Processed image {idx + 1}/{len(df)}: {image_path}")
-                    else:
-                        print(f"Failed to process image {idx + 1}/{len(df)}: {image_path}")
-                else:
-                    print(f"Image file not found: {image_path}")
-                    
-            except Exception as e:
-                print(f"Error processing row {idx}: {str(e)}")
-                continue
-                
-        print("Database initialization completed!")
-        
-    except Exception as e:
-        logging.error(f"Error reading CSV file: {str(e)}")
-        raise
