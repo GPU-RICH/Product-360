@@ -6,17 +6,56 @@ import io
 from back import (ChatConfig, ChatLogger, ChatMemory, QuestionGenerator, 
                   GeminiRAG, ProductDatabase, UserManager, UserInfo)
 
+# Product Configuration
+PRODUCT_CONFIG = {
+    "GAPL STARTER 1KG": {
+        "markdown_file": "STARTER.md",
+        "title": "🌱 GAPL STARTER 1KG उत्पाद सहायक",
+        "suggestions": [
+            {"image": "INNO_AG.webp", "name": "INNO AG Stimgo MGR 1 Kg"},
+            {"image": "IFFCO.webp", "name": "IFFCO Sagarika Bucket 10 Kg"},
+            {"image": "ORGA.webp", "name": "ORGANIC PDM 50 Kg"}
+        ]
+    },
+    "ENTOKILL 250ML": {
+        "markdown_file": "ENTOKILL.md",
+        "title": "🌱 Entokill 250ml उत्पाद सहायक",
+        "suggestions": [
+            {"image": "paras-npk.webp", "name": "PARAS NPK 12:32:16 50 Kg"},
+            {"image": "mosaic.webp", "name": "MOSAIC MOP 50 Kg"},
+            {"image": "paras_dap.webp", "name": "PARAS DAP 50 Kg"}
+        ]
+    },
+    "DEHAAT KHURAK 3000": {
+        "markdown_file": "KHURAK.md",
+        "title": "🌱 DeHaat Khurak 3000 उत्पाद सहायक",
+        "suggestions": [
+            {"image": "doodh_plus.webp", "name": "Doodh Plus 5 Kg"},
+            {"image": "balance.webp", "name": "DEHAAT BALANCE DIET 25 KG"},
+            {"image": "vetnoliv.webp", "name": "Vetnoliv 1 L"}
+        ]
+    },
+    "DOODH PLUS": {
+        "markdown_file": "doodhplus.md",
+        "title": "🌱 Doodh Plus उत्पाद सहायक",
+        "suggestions": [
+            {"image": "doodh_khurak.webp", "name": "DeHaat Khurak 5000 45 Kg"},
+            {"image": "vetnocal.webp", "name": "Vetnocal Gold 5 L"},
+            {"image": "kriya.webp", "name": "KriyaPro"}
+        ]
+    }
+}
+
 # UI Text in Hindi
 UI_TEXT = {
-    "title": "🌱 Entokill 250ml उत्पाद सहायक",
     "welcome_message": """
     Product 360 अनुभव में आपका स्वागत है! 🌾
     नमस्ते! अब आप उन 10,000+ किसानों के परिवार का हिस्सा बन गए हैं जो इस उत्पाद का उपयोग करते हैं।
-    आपने Entokill 250ml का QR कोड स्कैन किया है—यहां आपको इस उत्पाद से जुड़ी सभी ज़रूरी जानकारी मिलेगी, साथ ही उन किसानों की कहानियाँ भी, जिन्होंने इस उत्पाद से बेहतरीन परिणाम हासिल किए हैं।
-    थोड़ा समय निकालकर अपने साथी किसानों के (product name) से जुड़े अनुभव देखें -> https://www.youtube.com/watch?v=EY489XtDYEo और Entokill 250ml का अधिकतम लाभ उठाने के लिए तैयार हो जाएं!
+    आपने {product} का QR कोड स्कैन किया है—यहां आपको इस उत्पाद से जुड़ी सभी ज़रूरी जानकारी मिलेगी, साथ ही उन किसानों की कहानियाँ भी, जिन्होंने इस उत्पाद से बेहतरीन परिणाम हासिल किए हैं।
     
     नीचे दिए गए सवालों में से कोई चुनें या अपना खुद का सवाल पूछें
     """,
+    "product_select": "उत्पाद चुनें:",
     "input_placeholder": "अपना प्रश्न यहां टाइप करें...",
     "input_label": "कुछ भी पूछें:",
     "clear_chat": "चैट साफ़ करें",
@@ -44,19 +83,24 @@ UI_TEXT = {
 }
 
 # Initialize session state
-if 'chat_memory' not in st.session_state:
-    st.session_state.chat_memory = ChatMemory()
-if 'messages' not in st.session_state:
-    st.session_state.messages = []
-if 'message_counter' not in st.session_state:
-    st.session_state.message_counter = 0
-if 'submitted_question' not in st.session_state:
-    st.session_state.submitted_question = None
-if 'user_info' not in st.session_state:
-    st.session_state.user_info = None
-if 'show_suggestions' not in st.session_state:
-    st.session_state.show_suggestions = False
-    
+def init_session_state():
+    if 'chat_memory' not in st.session_state:
+        st.session_state.chat_memory = ChatMemory()
+    if 'messages' not in st.session_state:
+        st.session_state.messages = []
+    if 'message_counter' not in st.session_state:
+        st.session_state.message_counter = 0
+    if 'submitted_question' not in st.session_state:
+        st.session_state.submitted_question = None
+    if 'user_info' not in st.session_state:
+        st.session_state.user_info = None
+    if 'show_suggestions' not in st.session_state:
+        st.session_state.show_suggestions = False
+    if 'selected_product' not in st.session_state:
+        st.session_state.selected_product = list(PRODUCT_CONFIG.keys())[0]
+    if 'db' not in st.session_state:
+        st.session_state.db = None
+
 # Configure the page
 st.set_page_config(
     page_title="Product Assistant",
@@ -117,53 +161,39 @@ st.markdown("""
 
 def display_product_suggestions():
     if st.session_state.show_suggestions:
-        # Add a separator in sidebar
         st.sidebar.markdown("---")
-        
-        # Display products title
         st.sidebar.markdown(f"### {UI_TEXT['suggestions_title']}")
         
-        # Product 1
-        with st.sidebar.container():
-            st.image("paras-npk.webp", caption="PARAS NPK 12:32:16 50 Kg", use_column_width=True)
-            st.markdown("**PARAS NPK 12:32:16 50 Kg**")
-            st.markdown("---")
-        
-        # Product 2
-        with st.sidebar.container():
-            st.image("mosaic.webp", caption="MOSAIC MOP 50 Kg", use_column_width=True)
-            st.markdown("**MOSAIC MOP 50 Kg**")
-            st.markdown("---")
-        
-        # Product 3
-        with st.sidebar.container():
-            st.image("paras_dap.webp", caption="PARAS DAP 50 Kg", use_column_width=True)
-            st.markdown("**PARAS DAP 50 Kg**")
+        product_config = PRODUCT_CONFIG[st.session_state.selected_product]
+        for suggestion in product_config['suggestions']:
+            with st.sidebar.container():
+                st.image(suggestion['image'], caption=suggestion['name'], use_column_width=True)
+                st.markdown(f"**{suggestion['name']}**")
+                st.markdown("---")
                     
-# Initialize components
 @st.cache_resource
 def initialize_components():
     config = ChatConfig()
     logger = ChatLogger(config.log_file)
     question_gen = QuestionGenerator(config.gemini_api_key)
     rag = GeminiRAG(config.gemini_api_key)
-    db = ProductDatabase(config)
     user_manager = UserManager(config.user_data_file)
-    return config, logger, question_gen, rag, db, user_manager
+    return config, logger, question_gen, rag, user_manager
 
 config, logger, question_gen, rag, db, user_manager = initialize_components()
 
 # Load product database
-@st.cache_resource
-def load_database():
-    with open("ENTOKILL.md", "r", encoding="utf-8") as f:
-        markdown_content = f.read()
-    db.process_markdown(markdown_content)
-
-try:
-    load_database()
-except Exception as e:
-    st.error(f"डेटाबेस लोड करने में त्रुटि: {str(e)}")
+def load_database(product_name: str):
+    try:
+        markdown_file = PRODUCT_CONFIG[product_name]['markdown_file']
+        db = ProductDatabase(st.session_state.config)
+        with open(markdown_file, "r", encoding="utf-8") as f:
+            markdown_content = f.read()
+        db.process_markdown(markdown_content)
+        return db
+    except Exception as e:
+        st.error(f"डेटाबेस लोड करने में त्रुटि: {str(e)}")
+        return None
 
 async def process_question(question: str, image: Optional[bytes] = None):
     try:
@@ -210,11 +240,6 @@ async def process_question(question: str, image: Optional[bytes] = None):
     except Exception as e:
         st.error(f"प्रश्न प्रोसेस करने में त्रुटि: {str(e)}")
 
-def handle_submit():
-    if st.session_state.user_input:
-        st.session_state.submitted_question = st.session_state.user_input
-        st.session_state.user_input = ""
-
 def render_user_form():
     """Render the user information form in the sidebar"""
     st.sidebar.title(UI_TEXT["sidebar_title"])
@@ -247,6 +272,24 @@ def render_user_form():
                 st.sidebar.warning(UI_TEXT["form_required"])
 
 def main():
+    init_session_state()
+    
+    # Initialize components
+    config, logger, question_gen, rag, user_manager = initialize_components()
+    st.session_state.config = config
+    
+    # Product selection in sidebar
+    st.sidebar.selectbox(
+        UI_TEXT["product_select"],
+        options=list(PRODUCT_CONFIG.keys()),
+        key="selected_product",
+        on_change=lambda: setattr(st.session_state, 'db', load_database(st.session_state.selected_product))
+    )
+    
+    # Load database for selected product
+    if st.session_state.db is None:
+        st.session_state.db = load_database(st.session_state.selected_product)
+    
     # Add suggestions toggle at the top of sidebar
     st.sidebar.checkbox(
         UI_TEXT["show_suggestions"],
@@ -261,17 +304,25 @@ def main():
     if st.session_state.show_suggestions:
         display_product_suggestions()
 
-    st.title(UI_TEXT["title"])
+    # Display product-specific title
+    product_config = PRODUCT_CONFIG[st.session_state.selected_product]
+    st.title(product_config['title'])
     
     # Welcome message
     if not st.session_state.messages:
-        st.markdown(UI_TEXT["welcome_message"])
+        st.markdown(UI_TEXT["welcome_message"].format(product=st.session_state.selected_product))
         
         # Display initial questions as buttons
         cols = st.columns(2)
         for i, question in enumerate(UI_TEXT["initial_questions"]):
             if cols[i % 2].button(question, key=f"initial_{i}", use_container_width=True):
-                asyncio.run(process_question(question))
+                asyncio.run(process_question(
+                    question,
+                    st.session_state.db,
+                    rag,
+                    question_gen,
+                    logger
+                ))
     
     # Display chat history
     for message in st.session_state.messages:
@@ -305,7 +356,13 @@ def main():
                         key=f"followup_{message['message_id']}_{i}",
                         use_container_width=True
                     ):
-                        asyncio.run(process_question(question))
+                        asyncio.run(process_question(
+                            question,
+                            st.session_state.db,
+                            rag,
+                            question_gen,
+                            logger
+                        ))
     
     # Input area with image upload
     with st.container():
@@ -319,7 +376,11 @@ def main():
             )
             
             if uploaded_file:
-                st.image(uploaded_file, caption="अपलोड की गई छवि", use_column_width=True)
+                try:
+                    image = Image.open(uploaded_file)
+                    st.image(image, caption="अपलोड की गई छवि", use_column_width=True)
+                except Exception as e:
+                    st.error("छवि लोड करने में समस्या हुई। कृपया दूसरी छवि आज़माएं।")
         
         # Text input
         st.text_input(
@@ -333,15 +394,24 @@ def main():
         if st.session_state.submitted_question:
             image_bytes = None
             if uploaded_file is not None:
-                image_bytes = uploaded_file.getvalue()
+                try:
+                    image_bytes = uploaded_file.getvalue()
+                except Exception as e:
+                    st.error("छवि प्रोसेस करने में समस्या हुई। कृपया दूसरी छवि आज़माएं।")
             
             with st.spinner(UI_TEXT["image_processing"] if image_bytes else ""):
                 asyncio.run(process_question(
                     st.session_state.submitted_question,
+                    st.session_state.db,
+                    rag,
+                    question_gen,
+                    logger,
                     image_bytes
                 ))
             
             st.session_state.submitted_question = None
+            # Clear the image uploader
+            st.session_state.image_upload = None
             st.rerun()
         
         # Chat controls
@@ -352,28 +422,86 @@ def main():
             st.session_state.messages = []
             st.session_state.chat_memory.clear_history()
             st.session_state.message_counter = 0
+            st.session_state.image_upload = None
             st.rerun()
+
+async def process_question(
+    question: str,
+    db: ProductDatabase,
+    rag: GeminiRAG,
+    question_gen: QuestionGenerator,
+    logger: ChatLogger,
+    image: Optional[bytes] = None
+):
+    """Process a question and update the chat state"""
+    try:
+        relevant_docs = db.search(question)
+        context = rag.create_context(relevant_docs)
+        answer = await rag.get_answer(
+            question, 
+            context,
+            st.session_state.user_info,
+            image
+        )
+        
+        follow_up_questions = await question_gen.generate_questions(
+            question, 
+            answer,
+            st.session_state.user_info
+        )
+        
+        st.session_state.chat_memory.add_interaction(question, answer)
+        logger.log_interaction(
+            question, 
+            answer,
+            st.session_state.user_info
+        )
+        
+        st.session_state.message_counter += 1
+        
+        message_content = {
+            "text": question,
+            "has_image": image is not None
+        }
+        
+        st.session_state.messages.append({
+            "role": "user",
+            "content": message_content,
+            "message_id": st.session_state.message_counter
+        })
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": answer,
+            "questions": follow_up_questions,
+            "message_id": st.session_state.message_counter
+        })
+    except Exception as e:
+        st.error(f"प्रश्न प्रोसेस करने में त्रुटि: {str(e)}")
+        logging.error(f"Error processing question: {str(e)}")
+
+def handle_submit():
+    """Handle the submission of user input"""
+    if st.session_state.user_input:
+        st.session_state.submitted_question = st.session_state.user_input
+        st.session_state.user_input = ""
 
 def handle_error(error: Exception):
     """Handle errors gracefully"""
     error_messages = {
         "generic": "एक त्रुटि हुई। कृपया पुनः प्रयास करें।",
         "image": "छवि प्रोसेसिंग में त्रुटि। कृपया कोई अन्य छवि आज़माएं या बिना छवि के पूछें।",
-        "network": "नेटवर्क त्रुटि। कृपया अपना कनेक्शन जांचें और पुनः प्रयास करें।"
+        "network": "नेटवर्क त्रुटि। कृपया अपना कनेक्शन जांचें और पुनः प्रयास करें।",
+        "database": "डेटाबेस लोड करने में त्रुटि। कृपया पेज को रिफ्रेश करें।"
     }
     
     if "image" in str(error).lower():
         error_message = error_messages["image"]
     elif "network" in str(error).lower():
         error_message = error_messages["network"]
+    elif "database" in str(error).lower():
+        error_message = error_messages["database"]
     else:
         error_message = error_messages["generic"]
     
     st.error(error_message)
     logging.error(f"Error in app: {str(error)}")
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        handle_error(e)
