@@ -355,7 +355,7 @@ class ProductDatabase:
             metadatas = [{"section": doc["section"]} for doc in documents]
             
             self.vectorstore = FAISS.from_texts(
-                texts=texts
+                texts=texts,  # Added missing comma here
                 embedding=self.embeddings,
                 metadatas=metadatas
             )
@@ -374,4 +374,3 @@ class ProductDatabase:
         except Exception as e:
             logging.error(f"Error during search: {str(e)}")
             return []
-                
