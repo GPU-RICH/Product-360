@@ -188,8 +188,6 @@ def initialize_components():
         st.error(f"Error initializing components: {str(e)}")
         raise e
 
-config, logger, question_gen, rag, user_manager = initialize_components()
-
 def load_initial_database():
     """Load the default product database"""
     if not st.session_state.initialized:
