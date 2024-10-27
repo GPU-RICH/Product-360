@@ -207,16 +207,27 @@ async def process_question(question: str, image: Image.Image = None):
         # Get text-based relevant docs
         relevant_docs = db.search(question)
         context = rag.create_context(relevant_docs)
-        
-        # Get answer with image analysis if image is provided
-        answer, similar_images = await rag.get_answer(
-            question=question,
-            context=context,
-            language=st.session_state.language,
-            user_info=st.session_state.user_info,
-            query_image=image
-        )
-        
+
+        # Show processing indicator for image analysis
+        if image:
+            with st.spinner(UI_TEXT[st.session_state.language]["processing_image"]):
+                # Process the image query
+                answer, similar_images = await rag.get_answer(
+                    question=question,
+                    context=context,
+                    language=st.session_state.language,
+                    user_info=st.session_state.user_info,
+                    query_image=image
+                )
+        else:
+            # Process text-only query
+            answer, similar_images = await rag.get_answer(
+                question=question,
+                context=context,
+                language=st.session_state.language,
+                user_info=st.session_state.user_info
+            )
+
         # Generate follow-up questions
         follow_up_questions = await question_gen.generate_questions(
             question=question,
@@ -244,12 +255,26 @@ async def process_question(question: str, image: Image.Image = None):
         st.session_state.message_counter += 1
         
         # Add messages to chat history
-        st.session_state.messages.append({
-            "role": "user",
-            "content": question,
-            "image": image,
-            "message_id": st.session_state.message_counter
-        })
+        if image:
+            # Save image data in a format suitable for chat history
+            st.session_state.messages.append({
+                "role": "user",
+                "content": {
+                    "text": question,
+                    "has_image": True
+                },
+                "image": image,
+                "message_id": st.session_state.message_counter
+            })
+        else:
+            st.session_state.messages.append({
+                "role": "user",
+                "content": {
+                    "text": question,
+                    "has_image": False
+                },
+                "message_id": st.session_state.message_counter
+            })
         
         st.session_state.messages.append({
             "role": "assistant",
