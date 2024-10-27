@@ -35,7 +35,7 @@ class ChatConfig:
     gemini_api_key: str = "AIzaSyBS_DFCJh82voYIKoglS-ow6ezGNg775pg"  # Replace with your API key
     log_file: str = "chat_history.txt"
     user_data_file: str = "user_data.json"
-    default_language: Language = Language.ENGLISH
+    default_language: Language = Language.HINDI
 
 class UserManager:
     """Manages user information storage and retrieval"""
@@ -144,7 +144,7 @@ class QuestionGenerator:
             chat = self.model.start_chat(history=[])
             
             language_instruction = (
-                "Return the questions in Hindi." if language == Language.HINDI
+                "Return the questions in Hindi using Devanagari script." if language == Language.HINDI
                 else "Return the questions in English."
             )
             
@@ -166,11 +166,6 @@ class QuestionGenerator:
             {user_context}
             
             Generate 4 relevant follow-up questions that a customer might ask about product.
-            Focus on:
-            - Application methods and timing specific to their crop type if mentioned
-            - Benefits and effectiveness for their particular situation
-            - Compatibility with their farming context
-            - Scientific backing and results relevant to their case
             
             {language_instruction}
             Return ONLY the numbered questions (1-4), one per line.
