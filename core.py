@@ -152,15 +152,33 @@ class SimpleTranslator:
 class QuestionGenerator:
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
+        self.generation_config = {
+            "temperature": 0.2,  # Slightly higher temperature for more diverse questions
+            "top_p": 0.95,
+            "top_k": 64,
+            "max_output_tokens": 2048,
+        }
         self.model = genai.GenerativeModel(
             model_name="gemini-1.5-flash",
-            generation_config={
-                "temperature": 0.2,
-                "top_p": 0.95,
-                "max_output_tokens": 2048,
-            }
+            generation_config=self.generation_config
         )
         self.translator = SimpleTranslator(api_key)
+        
+        # Default questions as fallback
+        self.default_questions = {
+            Language.ENGLISH: [
+                "Can you provide more details about the product?",
+                "What are the recommended application methods?",
+                "What results can I expect to see?",
+                "Is it safe for all soil types?"
+            ],
+            Language.HINDI: [
+                "क्या आप उत्पाद के बारे में और जानकारी दे सकते हैं?",
+                "इसे कैसे प्रयोग करें?",
+                "मुझे क्या परिणाम देखने को मिलेंगे?",
+                "क्या यह सभी प्रकार की मिट्टी के लिए सुरक्षित है?"
+            ]
+        }
         
     async def generate_questions(
         self, 
@@ -169,53 +187,105 @@ class QuestionGenerator:
         language: Language, 
         user_info: Optional[UserInfo] = None
     ) -> List[str]:
+        """Generate follow-up questions based on the conversation"""
         try:
             # Always generate questions in English first
-            prompt = f"""Based on this conversation:
-            Question: {question}
-            Answer: {answer}
-            
-            Generate 4 relevant follow-up questions a farmer might ask.
-            Number each question (1-4) and put each on a new line."""
-            
             chat = self.model.start_chat(history=[])
+            
+            # Create a detailed prompt for question generation
+            prompt = f"""You are an agricultural expert generating follow-up questions for farmers.
+
+            Previous Conversation:
+            Farmer's Question: {question}
+            Given Answer: {answer}
+            
+            {f'''Farmer Context:
+            - Name: {user_info.name}
+            - Location: {user_info.location}
+            - Crop Type: {user_info.crop_type}
+            - Has Purchased: {'Yes' if user_info.has_purchased else 'No'}''' if user_info else ''}
+
+            Generate 4 relevant follow-up questions that:
+            1. Build on the previous conversation
+            2. Address practical farming concerns
+            3. Cover different aspects of the topic
+            4. Are specific and actionable
+            5. Help farmers understand the product better
+
+            Format:
+            1. [First Question]
+            2. [Second Question]
+            3. [Third Question]
+            4. [Fourth Question]
+
+            Keep questions clear and farmer-friendly."""
+            
             response = chat.send_message(prompt).text
             
-            # Extract questions
+            # Extract questions from response
             questions = []
             for line in response.split('\n'):
                 line = line.strip()
-                if line and (line.startswith('1.') or line.startswith('2.') or 
-                           line.startswith('3.') or line.startswith('4.')):
-                    questions.append(line.split('.', 1)[1].strip())
+                # Match lines starting with 1-4 followed by dot or parenthesis
+                if line and any(line.startswith(f"{i}.") or line.startswith(f"{i})") for i in range(1, 5)):
+                    # Remove the number and any leading characters
+                    question = line.split('.', 1)[-1].split(')', 1)[-1].strip()
+                    if question:
+                        questions.append(question)
             
-            # Translate questions if Hindi is requested
+            # If we couldn't extract enough questions, add defaults
+            while len(questions) < 4:
+                questions.append(self.default_questions[Language.ENGLISH][len(questions)])
+            
+            # Ensure we only have 4 questions
+            questions = questions[:4]
+            
+            # If Hindi is requested, translate all questions
             if language == Language.HINDI:
                 translated_questions = []
                 for q in questions:
-                    hindi_q = await self.translator.to_hindi(q)
-                    translated_questions.append(hindi_q)
-                return translated_questions[:4]
+                    try:
+                        hindi_q = await self.translator.to_hindi(q)
+                        translated_questions.append(hindi_q)
+                    except Exception as e:
+                        logging.error(f"Translation error for question: {str(e)}")
+                        # Use default Hindi question as fallback
+                        translated_questions.append(
+                            self.default_questions[Language.HINDI][len(translated_questions)]
+                        )
+                return translated_questions
             
-            return questions[:4]
+            return questions
             
         except Exception as e:
             logging.error(f"Error generating questions: {str(e)}")
-            default_questions = {
-                Language.ENGLISH: [
-                    "Can you provide more details about the product?",
-                    "What are the application methods?",
-                    "What results can I expect to see?",
-                    "Is it safe for all soil types?"
-                ],
-                Language.HINDI: [
-                    "क्या आप उत्पाद के बारे में और जानकारी दे सकते हैं?",
-                    "इसे कैसे प्रयोग करें?",
-                    "मुझे क्या परिणाम देखने को मिलेंगे?",
-                    "क्या यह सभी प्रकार की मिट्टी के लिए सुरक्षित है?"
-                ]
-            }
-            return default_questions[language]
+            # Return default questions in requested language
+            return self.default_questions[language]
+    
+    def is_valid_question(self, question: str) -> bool:
+        """Validate if the generated question is meaningful"""
+        if not question:
+            return False
+        # Avoid very short questions
+        if len(question.split()) < 3:
+            return False
+        # Avoid questions that are just punctuation or special characters
+        if not any(c.isalnum() for c in question):
+            return False
+        return True
+    
+    def sanitize_question(self, question: str) -> str:
+        """Clean up the generated question"""
+        # Remove multiple spaces
+        question = ' '.join(question.split())
+        # Ensure proper capitalization
+        question = question[0].upper() + question[1:]
+        # Ensure question ends with question mark
+        if not question.endswith('?'):
+            question += '?'
+        return question
+
+
 class ImageProcessor:
     """Handles image processing and analysis using Gemini"""
     def __init__(self, api_key: str):
@@ -289,17 +359,26 @@ class ImageProcessor:
 class GeminiRAG:
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
+        self.generation_config = {
+            "temperature": 0.1,
+            "top_p": 0.95,
+            "top_k": 64,
+            "max_output_tokens": 8192,
+        }
         self.model = genai.GenerativeModel(
             model_name="gemini-1.5-flash",
-            generation_config={
-                "temperature": 0.1,
-                "top_p": 0.95,
-                "max_output_tokens": 8192,
-            }
+            generation_config=self.generation_config
         )
         self.translator = SimpleTranslator(api_key)
         self.image_processor = ImageProcessor(api_key)
-        
+    
+    def create_context(self, relevant_docs: List[Dict[str, Any]]) -> str:
+        """Creates a context string from relevant documents"""
+        context_parts = []
+        for doc in relevant_docs:
+            context_parts.append(f"Section: {doc['metadata']['section']}\n{doc['content']}")
+        return "\n\n".join(context_parts)
+
     async def get_answer(
         self, 
         question: str, 
@@ -308,36 +387,99 @@ class GeminiRAG:
         user_info: Optional[UserInfo] = None,
         image: Optional[bytes] = None
     ) -> str:
+        if image:
+            try:
+                # Process image query in English first
+                chat = self.model.start_chat(history=[])
+                
+                image_part = {"mime_type": "image/jpeg", "data": image}
+                prompt = f"""You are an expert agricultural consultant specializing in crop health and Entokill bio-fertilizer.
+                
+                Analyze the image and address this query: {question}
+                
+                Consider this context:
+                {context}
+                
+                {f'''User Context:
+                - Farmer: {user_info.name}
+                - Location: {user_info.location}
+                - Growing: {user_info.crop_type}
+                - Has purchased product: {'Yes' if user_info.has_purchased else 'No'}''' if user_info else ''}
+                
+                Focus on:
+                1. Identifying visible issues or concerns
+                2. Providing practical solutions and recommendations
+                3. Explaining how Entokill might help (if relevant)
+                4. Suggesting preventive measures
+                
+                Provide a detailed, actionable response."""
+                
+                response = chat.send_message([image_part, prompt]).text
+                
+                # Translate to Hindi if needed
+                if language == Language.HINDI:
+                    return await self.translator.to_hindi(response)
+                return response
+                
+            except Exception as e:
+                logging.error(f"Error processing image: {str(e)}")
+                error_msg = "Sorry, I couldn't process the image. Please try again."
+                if language == Language.HINDI:
+                    return await self.translator.to_hindi(error_msg)
+                return error_msg
+        
         try:
-            # Always get English response first
-            prompt = f"""You are an agricultural expert helping farmers.
+            # Get response in English first
+            chat = self.model.start_chat(history=[])
             
-            Context: {context}
+            prompt = f"""You are an agricultural expert specializing in Entokill bio-fertilizer and crop protection.
+
+            Context Information:
+            {context}
             
-            Farmer Information:
-            Name: {user_info.name if user_info else 'Unknown'}
-            Location: {user_info.location if user_info else 'Unknown'}
-            Crop: {user_info.crop_type if user_info else 'Unknown'}
+            {f'''User Context:
+            - Farmer: {user_info.name}
+            - Location: {user_info.location}
+            - Growing: {user_info.crop_type}
+            - Has purchased product: {'Yes' if user_info.has_purchased else 'No'}''' if user_info else ''}
             
             Question: {question}
             
-            Provide a clear, practical, and detailed response."""
+            Instructions:
+            1. Provide specific, actionable advice
+            2. Use clear, farmer-friendly language
+            3. Include practical examples where relevant
+            4. Explain any technical terms
+            5. Focus on solutions and best practices
             
-            # Get response in English
-            chat = self.model.start_chat(history=[])
+            Please provide a comprehensive response addressing the farmer's question."""
+            
             response = chat.send_message(prompt).text
             
-            # If Hindi is requested, translate the response
+            # Translate to Hindi if needed
             if language == Language.HINDI:
                 return await self.translator.to_hindi(response)
             
             return response
             
         except Exception as e:
-            logging.error(f"Error in get_answer: {str(e)}")
-            return ("क्षमा करें, तकनीकी समस्या। कृपया पुनः प्रयास करें।" 
-                    if language == Language.HINDI 
-                    else "Sorry, technical error. Please try again.")
+            logging.error(f"Error generating answer: {str(e)}")
+            error_msg = "Sorry, I encountered a technical error. Please try again."
+            if language == Language.HINDI:
+                return await self.translator.to_hindi(error_msg)
+            return error_msg
+
+    def search(self, query: str, k: int = 3) -> List[Dict[str, Any]]:
+        """Search for relevant documents"""
+        if not self.vectorstore:
+            raise ValueError("Database not initialized. Please process documents first.")
+        
+        try:
+            docs = self.vectorstore.similarity_search(query, k=k)
+            return [{"content": doc.page_content, "metadata": doc.metadata} for doc in docs]
+        except Exception as e:
+            logging.error(f"Error during search: {str(e)}")
+            return []
 
 class CustomEmbeddings(Embeddings):
     """Custom embeddings using SentenceTransformer"""
