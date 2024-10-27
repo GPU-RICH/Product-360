@@ -20,13 +20,7 @@ UI_TEXT = {
     Language.ENGLISH: {
         "title": "🌱 Product Assistant",
         "welcome_message": """
-        👋 Welcome! I'm your product expert. I can help you learn about:
-        - Product benefits and features
-        - Application methods and timing
-        - Dosage recommendations
-        - Crop compatibility
-        - Technical specifications
-        - Analysis of crop images and issues
+        👋 Welcome! You’ve scanned the QR code for Entokill 250 ml, an advanced insecticide solution for protecting various crops.
 
         You can watch the product video here: https://www.youtube.com/watch?v=EY489XtDYEo
         
@@ -57,7 +51,7 @@ UI_TEXT = {
         ]
     },
     Language.HINDI: {
-        "title": "🌱 GAPL स्टार्टर उत्पाद सहायक",
+        "title": "🌱 Entokill 250ml उत्पाद सहायक",
         "welcome_message": """
         👋 नमस्ते! मैं आपका उत्पाद विशेषज्ञ हूं। मैं आपको इन विषयों में मदद कर सकता हूं:
         - उत्पाद के लाभ और विशेषताएं
@@ -119,7 +113,7 @@ if 'message_counter' not in st.session_state:
 if 'submitted_question' not in st.session_state:
     st.session_state.submitted_question = None
 if 'language' not in st.session_state:
-    st.session_state.language = Language.ENGLISH
+    st.session_state.language = Language.HINDI
 if 'user_info' not in st.session_state:
     st.session_state.user_info = None
 if 'show_suggestions' not in st.session_state:
