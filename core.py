@@ -119,7 +119,6 @@ class ChatMemory:
         self.history = []
 
 class QuestionGenerator:
-    """Generates follow-up questions using Gemini"""
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
         self.generation_config = {
@@ -143,9 +142,11 @@ class QuestionGenerator:
         try:
             chat = self.model.start_chat(history=[])
             
-            language_instruction = (
-                "STRICTLY return the questions in HINDI using Devanagari script." if language == Language.HINDI
-                else "Return the questions in English."
+            # Force language instruction to the start of the prompt
+            language_prefix = (
+                "You must generate questions in Hindi using Devanagari script only. Do not include any English text in the questions. " 
+                if language == Language.HINDI
+                else "Generate questions in English only. "
             )
             
             user_context = ""
@@ -158,17 +159,19 @@ class QuestionGenerator:
                 - Crop Type: {user_info.crop_type}
                 """
             
-            prompt = f"""Based on this product information interaction:
+            prompt = f"""{language_prefix}
+            Based on this product information interaction:
             
             Question: {question}
             Answer: {answer}
             
             {user_context}
             
-            Generate 4 relevant follow-up questions that a farmer might ask about product.
+            Generate 4 relevant follow-up questions that a farmer might ask about the product.
+            Each question should be natural and contextually relevant.
             
-            {language_instruction}
             Return ONLY the numbered questions (1-4), one per line.
+            Ensure every question is in the specified language.
             """
             
             response = chat.send_message(prompt).text
@@ -182,13 +185,13 @@ class QuestionGenerator:
             
             default_questions = {
                 Language.ENGLISH: [
-                    "Can you provide more details about product?",
+                    "Can you provide more details about the product?",
                     "What are the application methods?",
                     "What results can I expect to see?",
                     "Is it safe for all soil types?"
                 ],
                 Language.HINDI: [
-                    "क्या आप product के बारे में और जानकारी दे सकते हैं?",
+                    "क्या आप उत्पाद के बारे में और जानकारी दे सकते हैं?",
                     "इसे कैसे प्रयोग करें?",
                     "मुझे क्या परिणाम देखने को मिलेंगे?",
                     "क्या यह सभी प्रकार की मिट्टी के लिए सुरक्षित है?"
@@ -275,7 +278,6 @@ class ImageProcessor:
 
 
 class GeminiRAG:
-    """RAG implementation using Gemini"""
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
         self.generation_config = {
@@ -290,10 +292,6 @@ class GeminiRAG:
         )
         self.image_processor = ImageProcessor(api_key)
         
-    def create_context(self, relevant_docs: List[Dict[str, Any]]) -> str:
-        """Creates a context string from relevant documents"""
-        return "\n\n".join(doc['content'] for doc in relevant_docs)
-        
     async def get_answer(
         self, 
         question: str, 
@@ -302,7 +300,6 @@ class GeminiRAG:
         user_info: Optional[UserInfo] = None,
         image: Optional[bytes] = None
     ) -> str:
-        """Get answer for text or image-based query"""
         if image:
             return await self.image_processor.process_image_query(
                 image,
@@ -314,9 +311,11 @@ class GeminiRAG:
         try:
             chat = self.model.start_chat(history=[])
             
-            language_instruction = (
-                "Respond in fluent Hindi, using Devanagari script." if language == Language.HINDI
-                else "Respond in English."
+            # Force language instruction to the start of the prompt
+            language_prefix = (
+                "You must respond in Hindi using Devanagari script. Do not use any English in your response except for technical terms if necessary. " 
+                if language == Language.HINDI
+                else "Respond in English only. "
             )
             
             user_context = ""
@@ -324,7 +323,7 @@ class GeminiRAG:
                 user_context = f"""
                 Consider this user context while generating your response:
                 - You are talking to {user_info.name} from {user_info.location}
-                - They {'' if user_info.has_purchased else 'have not '}purchased product
+                - They {'' if user_info.has_purchased else 'have not '}purchased the product
                 - They are growing {user_info.crop_type}
                 
                 Tailor your response to their specific situation, crop type, and location.
@@ -332,10 +331,9 @@ class GeminiRAG:
                 If they have purchased, focus on optimal usage and maximizing results.
                 """
             
-            prompt = f"""You are an expert agricultural consultant specializing in product bio-fertilizer. 
+            prompt = f"""{language_prefix}
+            You are an expert agricultural consultant specializing in the product bio-fertilizer. 
             You have extensive hands-on experience with the product and deep knowledge of its applications and benefits.
-            
-            {language_instruction}
             
             {user_context}
             
@@ -351,6 +349,8 @@ class GeminiRAG:
             - Focused on helping farmers succeed
             - Based on product expertise and their specific context
             - Tailored to their crop type and farming situation
+            
+            Remember to maintain the specified language throughout your entire response.
             """
             
             response = chat.send_message(prompt)
