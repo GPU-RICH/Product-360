@@ -296,7 +296,7 @@ class QuestionGenerator:
             return default_questions[language]
 
 class GeminiRAG:
-    """RAG implementation using Gemini"""
+    """RAG implementation using Gemini with image processing capabilities"""
     def __init__(self, api_key: str, image_processor: ImageProcessor):
         genai.configure(api_key=api_key)
         self.generation_config = {
@@ -306,6 +306,10 @@ class GeminiRAG:
             "max_output_tokens": 8192,
         }
         self.model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",  # Changed to vision model
+            generation_config=self.generation_config
+        )
+        self.text_model = genai.GenerativeModel(
             model_name="gemini-1.5-flash",
             generation_config=self.generation_config
         )
@@ -324,20 +328,6 @@ class GeminiRAG:
         query_image: Optional[Image.Image] = None
     ) -> Tuple[str, List[Dict]]:
         try:
-            similar_images = []
-            if query_image:
-                similar_images = self.image_processor.find_similar_images(query_image)
-                image_context = "\n\n".join([
-                    f"Similar case found:\n"
-                    f"Problem: {img['problem_type']}\n"
-                    f"Description: {img['description']}\n"
-                    f"Solution: {img['solution']}"
-                    for img in similar_images
-                ])
-                context = f"{context}\n\nImage Analysis:\n{image_context}"
-            
-            chat = self.model.start_chat(history=[])
-            
             language_instruction = (
                 "Respond in fluent Hindi, using Devanagari script." if language == Language.HINDI
                 else "Respond in English."
@@ -348,43 +338,56 @@ class GeminiRAG:
                 user_context = f"""
                 Consider this user context while generating your response:
                 - You are talking to {user_info.name} from {user_info.location}
-                - They {'' if user_info.has_purchased else 'have not '}purchased the product
+                - They {'' if user_info.has_purchased else 'have not '}purchased GAPL Starter
                 - They are growing {user_info.crop_type}
-                
-                Tailor your response to their specific situation, crop type, and location.
-                If they haven't purchased, focus on benefits and value proposition.
-                If they have purchased, focus on optimal usage and maximizing results.
                 """
-            
-            image_instruction = "The farmer has shared an image of their crop issue. Consider the similar cases found in the analysis." if query_image else ""
-            
-            prompt = f"""You are an expert agricultural consultant specializing in agricultural products. 
-            You have extensive hands-on experience with the product and deep knowledge of its applications and benefits.
 
+            base_prompt = f"""You are an expert agricultural consultant specializing in agricultural products. 
+            You have extensive hands-on experience with the product and deep knowledge of its applications and benefits.
+            
             {language_instruction}
-            {image_instruction}
             
             {user_context}
             
-            Background information to inform your response:
+            Background information:
             {context}
 
             Question from farmer: {question}
 
-            Respond naturally as an expert would, without referencing any "provided information" or documentation.
-            Your response should be:
-            - Confident and authoritative
-            - Direct and practical
-            - Focused on helping farmers succeed
-            - Based on product expertise and their specific context
-            - Tailored to their crop type and farming situation
-
-            If you don't have enough specific information to answer the question, respond appropriately in the specified language 
-            acknowledging the limitations while sharing what you do know about the product.
-            Remember to maintain a helpful, expert tone throughout your response.
-            """
+            Provide a detailed response that:
+            1. If an image is shared, analyze the crop problem visible in the image first
+            2. Explain how the product can help with the identified issues
+            3. Provide specific application recommendations
+            4. Include preventive measures if applicable
             
-            response = chat.send_message(prompt)
+            Keep your response practical and focused on helping the farmer succeed."""
+
+            similar_images = []
+            if query_image:
+                # Find similar cases using CLIP
+                similar_images = self.image_processor.find_similar_images(query_image)
+                
+                # Create image context from similar cases
+                image_context = "\n\n".join([
+                    f"Similar case found:\n"
+                    f"Problem: {img['problem_type']}\n"
+                    f"Description: {img['description']}\n"
+                    f"Solution: {img['solution']}"
+                    for img in similar_images
+                ])
+                
+                # Prepare image content for Gemini
+                response = self.model.generate_content(
+                    contents=[
+                        base_prompt,
+                        query_image,
+                        f"\nSimilar cases analysis:\n{image_context}"
+                    ]
+                )
+            else:
+                # Text-only query
+                response = self.text_model.generate_content(base_prompt)
+
             return response.text, similar_images
             
         except Exception as e:
