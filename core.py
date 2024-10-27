@@ -152,10 +152,10 @@ class QuestionGenerator:
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
         self.generation_config = {
-            "temperature": 0.2,  # Slightly higher temperature for more diverse questions
+            "temperature": 0.1,  # Slightly higher temperature for more diverse questions
             "top_p": 0.95,
             "top_k": 64,
-            "max_output_tokens": 2048,
+            "max_output_tokens": 8192,
         }
         self.model = genai.GenerativeModel(
             model_name="gemini-1.5-flash",
