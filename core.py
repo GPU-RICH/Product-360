@@ -2,7 +2,6 @@ import os
 import logging
 from typing import List, Dict, Any, Optional, Union
 from dataclasses import dataclass
-from enum import Enum
 import torch
 from sentence_transformers import SentenceTransformer
 from langchain_community.vectorstores import FAISS
@@ -12,10 +11,6 @@ from datetime import datetime
 import json
 from PIL import Image
 import io
-
-class Language(Enum):
-    ENGLISH = "en-US"
-    HINDI = "hi"
 
 @dataclass
 class UserInfo:
@@ -35,7 +30,6 @@ class ChatConfig:
     gemini_api_key: str = "AIzaSyBS_DFCJh82voYIKoglS-ow6ezGNg775pg"  # Replace with your API key
     log_file: str = "chat_history.txt"
     user_data_file: str = "user_data.json"
-    default_language: Language = Language.HINDI
 
 class UserManager:
     """Manages user information storage and retrieval"""
@@ -93,13 +87,13 @@ class ChatLogger:
     def __init__(self, log_file: str):
         self.log_file = log_file
         
-    def log_interaction(self, question: str, answer: str, language: Language, user_info: Optional[UserInfo] = None):
+    def log_interaction(self, question: str, answer: str, user_info: Optional[UserInfo] = None):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with open(self.log_file, 'a', encoding='utf-8') as f:
             user_context = ""
             if user_info:
                 user_context = f"\nUser: {user_info.name} | Location: {user_info.location} | Crop: {user_info.crop_type}"
-            f.write(f"\n[{timestamp}] [{language.value}]{user_context}\nQ: {question}\nA: {answer}\n{'-'*50}")
+            f.write(f"\n[{timestamp}]{user_context}\nQ: {question}\nA: {answer}\n{'-'*50}")
 
 class ChatMemory:
     """Manages chat history"""
@@ -118,36 +112,6 @@ class ChatMemory:
     def clear_history(self):
         self.history = []
 
-class SimpleTranslator:
-    """Simple translator that converts English responses to Hindi"""
-    def __init__(self, api_key: str):
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            generation_config={
-                "temperature": 0.1,
-                "top_p": 0.95,
-                "max_output_tokens": 8192,
-            }
-        )
-    
-    async def to_hindi(self, english_text: str) -> str:
-        """Translates English text to Hindi"""
-        try:
-            chat = self.model.start_chat(history=[])
-            prompt = f"""Translate the following English text to Hindi. Use Devanagari script.
-            Maintain the same formatting and structure.
-            Make it natural and farmer-friendly.
-            
-            Text to translate:
-            {english_text}"""
-            
-            response = chat.send_message(prompt)
-            return response.text
-        except Exception as e:
-            logging.error(f"Translation error: {str(e)}")
-            return "अनुवाद में त्रुटि। कृपया पुनः प्रयास करें।"
-        
 class QuestionGenerator:
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
@@ -161,87 +125,49 @@ class QuestionGenerator:
             generation_config=self.generation_config
         )
         
-        # Simple, practical default questions for both languages
-        self.default_questions = {
-            Language.ENGLISH: [
-                "What is the best time to apply this product?",
-                "Have you seen any results after using the product?",
-                "Do you have any concerns about applying it to your crops?",
-                "Would you like to learn about other pest control methods?"
-            ],
-            Language.HINDI: [
-                "इस उत्पाद को कब इस्तेमाल करना सबसे अच्छा रहेगा?",
-                "क्या उत्पाद के इस्तेमाल के बाद आपने कोई परिणाम देखा है?",
-                "क्या आपको अपनी फसल पर इसे लगाने को लेकर कोई चिंता है?",
-                "क्या आप कीट नियंत्रण के अन्य तरीकों के बारे में जानना चाहेंगे?"
-            ]
-        }
+        self.default_questions = [
+            "इस उत्पाद को कब इस्तेमाल करना सबसे अच्छा रहेगा?",
+            "क्या उत्पाद के इस्तेमाल के बाद आपने कोई परिणाम देखा है?",
+            "क्या आपको अपनी फसल पर इसे लगाने को लेकर कोई चिंता है?",
+            "क्या आप कीट नियंत्रण के अन्य तरीकों के बारे में जानना चाहेंगे?"
+        ]
     
     async def generate_questions(
         self, 
         question: str, 
         answer: str, 
-        language: Language, 
         user_info: Optional[UserInfo] = None
     ) -> List[str]:
         """Generate follow-up questions based on the conversation"""
         try:
-            # Generate in English first with a simple prompt
             chat = self.model.start_chat(history=[])
-            prompt = f"""Based on this conversation with a farmer:
+            prompt = f"""Generate 4 simple, practical follow-up questions in Hindi (Devanagari script) based on this conversation with a farmer:
 
 Question: {question}
 Answer: {answer}
 
-Generate 4 simple, practical follow-up questions focusing on:
-1. Timing of application
-2. Results and effectiveness
-3. Safety concerns
-4. Additional recommendations
+Focus the questions on:
+1. समय और उपयोग (Timing and usage)
+2. परिणाम और प्रभावशीलता (Results and effectiveness)
+3. सुरक्षा संबंधी चिंताएं (Safety concerns)
+4. अतिरिक्त सिफारिशें (Additional recommendations)
 
-Format each question on a new line starting with a number and a dot."""
+Keep the language simple and farmer-friendly. Format each question on a new line."""
 
             response = chat.send_message(prompt).text
             
-            # Extract questions - keep it simple
-            questions = []
-            for line in response.split('\n'):
-                line = line.strip()
-                if line and any(line.startswith(f"{i}. ") for i in range(1, 5)):
-                    question = line.split('. ', 1)[1].strip()
-                    if question:
-                        questions.append(question)
+            # Extract questions
+            questions = [q.strip() for q in response.split('\n') if q.strip()]
             
-            # If we can't get enough good questions, use the defaults
+            # Return default questions if we don't get exactly 4 valid questions
             if len(questions) != 4:
-                return self.default_questions[language]
-                
-            # If Hindi is requested, translate the questions
-            if language == Language.HINDI:
-                try:
-                    hindi_prompt = f"""Translate these farming-related questions to simple, natural Hindi:
-
-{questions[0]}
-{questions[1]}
-{questions[2]}
-{questions[3]}"""
-                    
-                    hindi_response = chat.send_message(hindi_prompt).text
-                    hindi_questions = [q.strip() for q in hindi_response.split('\n') if q.strip()]
-                    
-                    if len(hindi_questions) == 4:
-                        return hindi_questions
-                    else:
-                        return self.default_questions[Language.HINDI]
-                except:
-                    return self.default_questions[Language.HINDI]
+                return self.default_questions
             
             return questions
             
         except Exception as e:
             logging.error(f"Error generating questions: {str(e)}")
-            return self.default_questions[language]
-
+            return self.default_questions
 
 class ImageProcessor:
     """Handles image processing and analysis using Gemini"""
@@ -257,95 +183,63 @@ class ImageProcessor:
             model_name="gemini-1.5-flash",
             generation_config=self.generation_config
         )
-        self.translator = SimpleTranslator(api_key)
     
     async def process_image_query(
         self,
         image: bytes,
         query: str,
-        language: Language,
         user_info: Optional[UserInfo] = None
     ) -> str:
         try:
             chat = self.model.start_chat(history=[])
             
-            # Always create prompt in English
             user_context = ""
             if user_info:
                 user_context = f"""
-                Consider this context while analyzing the image:
-                - Farmer Name: {user_info.name}
-                - Location: {user_info.location}
-                - Current Crop: {user_info.crop_type}
-                - Product Purchased: {'Yes' if user_info.has_purchased else 'No'}
+                किसान की जानकारी:
+                - नाम: {user_info.name}
+                - स्थान: {user_info.location}
+                - फसल: {user_info.crop_type}
+                - उत्पाद खरीदा: {'हाँ' if user_info.has_purchased else 'नहीं'}
                 """
             
-            # Upload image to Gemini
             image_part = {"mime_type": "image/jpeg", "data": image}
             
-            prompt = f"""You are an expert agricultural consultant specializing in crop health.
+            prompt = f"""You are an expert agricultural consultant. Analyze the image and provide response in Hindi (Devanagari script).
             
             {user_context}
             
-            Analyze the image and address this query: {query}
+            किसान का प्रश्न: {query}
             
-            Focus on:
-            1. Identifying specific visible issues or concerns
-            2. Providing practical, actionable solutions
-            3. Explaining how the product can help (if relevant)
-            4. Suggesting preventive measures
-            5. Mentioning any immediate steps needed
+            इन बिंदुओं पर ध्यान दें:
+            1. दिखाई देने वाली समस्याओं की पहचान
+            2. व्यावहारिक समाधान
+            3. उत्पाद कैसे मदद कर सकता है
+            4. रोकथाम के उपाय
+            5. तत्काल करने योग्य कदम
             
-            Guidelines:
-            - Be specific and actionable
-            - Give concise, clear recommendations
-            - Use farmer-friendly language
-            - Prioritize practical advice
-            - Maintain a helpful, conversational tone
+            सरल भाषा में एक संक्षिप्त और स्पष्ट जवाब दें।"""
             
-            Provide a brief, structured and easy-to-follow response. Always maintain a conversational tone."""
-            
-            # Get response in English
             response = chat.send_message([image_part, prompt]).text
-            
-            # Translate to Hindi if needed
-            if language == Language.HINDI:
-                try:
-                    return await self.translator.to_hindi(response)
-                except Exception as e:
-                    logging.error(f"Translation error: {str(e)}")
-                    return "क्षमा करें, छवि का विश्लेषण करने में समस्या हुई। कृपया पुनः प्रयास करें।"
-            
             return response
             
         except Exception as e:
             logging.error(f"Error processing image query: {str(e)}")
-            error_msg = "I apologize, but I'm having trouble analyzing the image. Please try again."
-            
-            if language == Language.HINDI:
-                try:
-                    return await self.translator.to_hindi(error_msg)
-                except:
-                    return "क्षमा करें, छवि का विश्लेषण करने में समस्या हुई। कृपया पुनः प्रयास करें।"
-            
-            return error_msg
+            return "क्षमा करें, छवि का विश्लेषण करने में समस्या हुई। कृपया पुनः प्रयास करें।"
 
     async def validate_image(self, image: bytes) -> bool:
         """Validate if the image is suitable for analysis"""
         try:
             img = Image.open(io.BytesIO(image))
-            # Check if image is not too small or too large
             width, height = img.size
             if width < 100 or height < 100:
                 return False
             if width > 4096 or height > 4096:
                 return False
-            # Add more validation as needed
             return True
         except Exception as e:
             logging.error(f"Image validation error: {str(e)}")
             return False
-
 
 class GeminiRAG:
     def __init__(self, api_key: str):
@@ -360,7 +254,6 @@ class GeminiRAG:
             model_name="gemini-1.5-flash",
             generation_config=self.generation_config
         )
-        self.translator = SimpleTranslator(api_key)
         self.image_processor = ImageProcessor(api_key)
     
     def create_context(self, relevant_docs: List[Dict[str, Any]]) -> str:
@@ -373,104 +266,44 @@ class GeminiRAG:
     async def get_answer(
         self, 
         question: str, 
-        context: str, 
-        language: Language,
+        context: str,
         user_info: Optional[UserInfo] = None,
         image: Optional[bytes] = None
     ) -> str:
         if image:
-            try:
-                # Process image query in English first
-                chat = self.model.start_chat(history=[])
-                
-                image_part = {"mime_type": "image/jpeg", "data": image}
-                prompt = f"""You are an expert agricultural consultant specializing in crop health.
-                
-                Analyze the image and address this query: {question}
-                
-                Consider this context:
-                {context}
-                
-                {f'''User Context:
-                - Farmer: {user_info.name}
-                - Location: {user_info.location}
-                - Growing: {user_info.crop_type}
-                - Has purchased product: {'Yes' if user_info.has_purchased else 'No'}''' if user_info else ''}
-                
-                Focus on:
-                1. Identifying visible issues or concerns
-                2. Providing practical solutions and recommendations
-                3. Explaining how product might help (if relevant)
-                4. Suggesting preventive measures
-                
-                Provide a very brief, actionable response. Always try to keep the flow of a conversation."""
-                
-                response = chat.send_message([image_part, prompt]).text
-                
-                # Translate to Hindi if needed
-                if language == Language.HINDI:
-                    return await self.translator.to_hindi(response)
-                return response
-                
-            except Exception as e:
-                logging.error(f"Error processing image: {str(e)}")
-                error_msg = "Sorry, I couldn't process the image. Please try again."
-                if language == Language.HINDI:
-                    return await self.translator.to_hindi(error_msg)
-                return error_msg
+            return await self.image_processor.process_image_query(image, question, user_info)
         
         try:
-            # Get response in English first
             chat = self.model.start_chat(history=[])
             
-            prompt = f"""You are an agricultural expert specializing in crop protection.
+            prompt = f"""You are an agricultural expert. Provide response in Hindi (Devanagari script).
 
-            Context Information:
+            संदर्भ जानकारी:
             {context}
             
-            {f'''User Context:
-            - Farmer: {user_info.name}
-            - Location: {user_info.location}
-            - Growing: {user_info.crop_type}
-            - Has purchased product: {'Yes' if user_info.has_purchased else 'No'}''' if user_info else ''}
+            {f'''किसान की जानकारी:
+            - नाम: {user_info.name}
+            - स्थान: {user_info.location}
+            - फसल: {user_info.crop_type}
+            - उत्पाद खरीदा: {'हाँ' if user_info.has_purchased else 'नहीं'}''' if user_info else ''}
             
-            Question: {question}
+            प्रश्न: {question}
             
-            Instructions:
-            1. Provide specific, actionable advice
-            2. Use clear, farmer-friendly language
-            3. Include practical examples where relevant
-            4. Explain any technical terms
-            5. Focus on solutions and best practices
+            निर्देश:
+            1. विशिष्ट और व्यावहारिक सलाह दें
+            2. सरल किसान-हितैषी भाषा का प्रयोग करें
+            3. जहाँ उपयुक्त हो उदाहरण दें
+            4. तकनीकी शब्दों को समझाएं
+            5. समाधान और सर्वोत्तम प्रथाओं पर ध्यान दें
             
-            Provide a very brief, actionable response addressing the farmer's question. Always try to keep the flow of a conversation."""
+            एक संक्षिप्त और व्यावहारिक उत्तर दें।"""
             
             response = chat.send_message(prompt).text
-            
-            # Translate to Hindi if needed
-            if language == Language.HINDI:
-                return await self.translator.to_hindi(response)
-            
             return response
             
         except Exception as e:
             logging.error(f"Error generating answer: {str(e)}")
-            error_msg = "Sorry, I encountered a technical error. Please try again."
-            if language == Language.HINDI:
-                return await self.translator.to_hindi(error_msg)
-            return error_msg
-
-    def search(self, query: str, k: int = 3) -> List[Dict[str, Any]]:
-        """Search for relevant documents"""
-        if not self.vectorstore:
-            raise ValueError("Database not initialized. Please process documents first.")
-        
-        try:
-            docs = self.vectorstore.similarity_search(query, k=k)
-            return [{"content": doc.page_content, "metadata": doc.metadata} for doc in docs]
-        except Exception as e:
-            logging.error(f"Error during search: {str(e)}")
-            return []
+            return "क्षमा करें, तकनीकी त्रुटि हुई। कृपया पुनः प्रयास करें।"
 
 class CustomEmbeddings(Embeddings):
     """Custom embeddings using SentenceTransformer"""
@@ -522,7 +355,7 @@ class ProductDatabase:
             metadatas = [{"section": doc["section"]} for doc in documents]
             
             self.vectorstore = FAISS.from_texts(
-                texts=texts,
+                texts=texts
                 embedding=self.embeddings,
                 metadatas=metadatas
             )
@@ -541,3 +374,4 @@ class ProductDatabase:
         except Exception as e:
             logging.error(f"Error during search: {str(e)}")
             return []
+                
