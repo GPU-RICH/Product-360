@@ -184,12 +184,14 @@ def initialize_components():
         question_gen = QuestionGenerator(config.gemini_api_key)
         rag = GeminiRAG(config.gemini_api_key)
         user_manager = UserManager(config.user_data_file)
+        # Store config in session state for later use
+        st.session_state.config = config
         return config, logger, question_gen, rag, user_manager
     except Exception as e:
         st.error(f"Error initializing components: {str(e)}")
         raise e
 
-config, logger, question_gen, rag, db, user_manager = initialize_components()
+config, logger, question_gen, rag, user_manager = initialize_components()
 
 # Load product database
 def load_database(product_name: str):
