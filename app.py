@@ -315,20 +315,20 @@ def main():
     if not st.session_state.initialized:
         load_initial_database()
       
-    # Initialize components
-    if 'components' not in st.session_state:
-        try:
-            config, logger, question_gen, rag, user_manager = initialize_components()
-            st.session_state.components = {
-                'config': config,
-                'logger': logger,
-                'question_gen': question_gen,
-                'rag': rag,
-                'user_manager': user_manager
-            }
-        except Exception as e:
-            st.error("Failed to initialize components. Please refresh the page.")
-            return
+    # # Initialize components
+    # if 'components' not in st.session_state:
+    #     try:
+    #         config, logger, question_gen, rag, user_manager = initialize_components()
+    #         st.session_state.components = {
+    #             'config': config,
+    #             'logger': logger,
+    #             'question_gen': question_gen,
+    #             'rag': rag,
+    #             'user_manager': user_manager
+    #         }
+    #     except Exception as e:
+    #         st.error("Failed to initialize components. Please refresh the page.")
+    #         return
 
     # Load database for selected product
     if st.session_state.db is None:
