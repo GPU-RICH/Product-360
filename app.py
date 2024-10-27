@@ -191,28 +191,28 @@ def display_product_suggestions():
     if st.session_state.show_suggestions:
         current_text = UI_TEXT[st.session_state.language]
         
-        with st.container():
-            st.markdown(f"### {current_text['suggestions_title']}")
-            
-            cols = st.columns(3)
-            
-            # Product 1
-            with cols[0]:
-                with st.container():
-                    st.image("paras_npk.webp", caption="PARAS NPK 12:32:16 50 Kg")
-                    st.markdown("**PARAS NPK 12:32:16 50 Kg**")
-            
-            # Product 2
-            with cols[1]:
-                with st.container():
-                    st.image("mosaic.webp", caption="MOSAIC MOP 50 Kg")
-                    st.markdown("**MOSAIC MOP 50 Kg**")
-            
-            # Product 3
-            with cols[2]:
-                with st.container():
-                    st.image("paras_dap.webp", caption="PARAS DAP 50 Kg")
-                    st.markdown("**PARAS DAP 50 Kg**")
+        # Add a separator in sidebar
+        st.sidebar.markdown("---")
+        
+        # Display products title
+        st.sidebar.markdown(f"### {current_text['suggestions_title']}")
+        
+        # Product 1
+        with st.sidebar.container():
+            st.image("paras-npk.webp", caption="PARAS NPK 12:32:16 50 Kg", use_column_width=True)
+            st.markdown("**PARAS NPK 12:32:16 50 Kg**")
+            st.markdown("---")  # Separator between products
+        
+        # Product 2
+        with st.sidebar.container():
+            st.image("mosaic.webp", caption="MOSAIC MOP 50 Kg", use_column_width=True)
+            st.markdown("**MOSAIC MOP 50 Kg**")
+            st.markdown("---")  # Separator between products
+        
+        # Product 3
+        with st.sidebar.container():
+            st.image("paras_dap.webp", caption="PARAS DAP 50 Kg", use_column_width=True)
+            st.markdown("**PARAS DAP 50 Kg**")
                     
 # Initialize components
 @st.cache_resource
@@ -382,15 +382,23 @@ def main():
             )
             st.session_state.language = selected_language
 
-    # Render user form in sidebar
-    render_user_form()
-
+    # Add suggestions toggle at the top of sidebar
     current_text = UI_TEXT[st.session_state.language]
     st.sidebar.checkbox(
         current_text["show_suggestions"],
         key="show_suggestions",
         value=st.session_state.show_suggestions
     )
+
+    # Render user form in sidebar
+    render_user_form()
+    
+    # Display product suggestions in sidebar if enabled
+    if st.session_state.show_suggestions:
+        display_product_suggestions()
+
+    current_text = UI_TEXT[st.session_state.language]
+    
     st.title(current_text["title"])
     
     # Welcome message
@@ -402,14 +410,42 @@ def main():
         for i, question in enumerate(current_text["initial_questions"]):
             if cols[i % 2].button(question, key=f"initial_{i}", use_container_width=True):
                 asyncio.run(process_question(question))
-                
-    # Display fixed product suggestions if toggle is on                
-    if st.session_state.show_suggestions:
-        display_product_suggestions()
-        
+    
     # Display chat history
     for message in st.session_state.messages:
-        display_chat_message(message)
+        if message["role"] == "user":
+            if isinstance(message["content"], dict):
+                # Message with possible image
+                st.markdown(
+                    f'<div class="user-message">👤 {message["content"]["text"]}</div>',
+                    unsafe_allow_html=True
+                )
+                if message["content"]["has_image"]:
+                    st.markdown(
+                        '<div class="user-message">📷 Image uploaded</div>',
+                        unsafe_allow_html=True
+                    )
+            else:
+                # Legacy message format
+                st.markdown(
+                    f'<div class="user-message">👤 {message["content"]}</div>',
+                    unsafe_allow_html=True
+                )
+        else:
+            st.markdown(
+                f'<div class="assistant-message">🌱 {message["content"]}</div>',
+                unsafe_allow_html=True
+            )
+            
+            if message.get("questions"):
+                cols = st.columns(2)
+                for i, question in enumerate(message["questions"]):
+                    if cols[i % 2].button(
+                        question,
+                        key=f"followup_{message['message_id']}_{i}",
+                        use_container_width=True
+                    ):
+                        asyncio.run(process_question(question))
     
     # Input area with image upload
     with st.container():
@@ -438,16 +474,15 @@ def main():
             image_bytes = None
             if uploaded_file is not None:
                 image_bytes = uploaded_file.getvalue()
-                # Process submitted question continued...
-            if st.session_state.submitted_question:
-                with st.spinner(current_text["image_processing"] if image_bytes else ""):
-                    asyncio.run(process_question(
-                        st.session_state.submitted_question,
-                        image_bytes
-                    ))
-                
-                st.session_state.submitted_question = None
-                st.rerun()
+            
+            with st.spinner(current_text["image_processing"] if image_bytes else ""):
+                asyncio.run(process_question(
+                    st.session_state.submitted_question,
+                    image_bytes
+                ))
+            
+            st.session_state.submitted_question = None
+            st.rerun()
         
         # Chat controls
         cols = st.columns([4, 1])
