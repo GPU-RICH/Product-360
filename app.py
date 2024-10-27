@@ -27,6 +27,8 @@ UI_TEXT = {
         - Crop compatibility
         - Technical specifications
         - Analysis of crop images and issues
+
+        You can watch the product video here: https://www.youtube.com/watch?v=EY489XtDYEo
         
         Choose a question below or ask your own!
         """,
@@ -64,6 +66,8 @@ UI_TEXT = {
         - फसल अनुकूलता
         - तकनीकी विवरण
         - फसल की छवियों और समस्याओं का विश्लेषण
+        
+        आप उत्पाद वीडियो यहां देख सकते हैं: https://www.youtube.com/watch?v=EY489XtDYEo
         
         नीचे दिए गए प्रश्नों में से चुनें या अपना प्रश्न पूछें!
         """,
