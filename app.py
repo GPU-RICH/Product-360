@@ -310,7 +310,11 @@ def render_user_form():
 def main():
   
     init_session_state()
-    
+
+    # Load initial database and components if not already initialized
+    if not st.session_state.initialized:
+        load_initial_database()
+      
     # Initialize components
     if 'components' not in st.session_state:
         try:
