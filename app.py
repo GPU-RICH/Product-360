@@ -93,6 +93,18 @@ UI_TEXT = {
     }
 }
 
+# Add to your UI_TEXT dictionary
+UI_TEXT[Language.ENGLISH].update({
+    "show_suggestions": "Show Related Products",
+    "suggestions_title": "Related Products:",
+})
+
+UI_TEXT[Language.HINDI].update({
+    "show_suggestions": "संबंधित उत्पाद दिखाएं",
+    "suggestions_title": "संबंधित उत्पाद:",
+})
+
+
 # Initialize session state
 if 'chat_memory' not in st.session_state:
     st.session_state.chat_memory = ChatMemory()
@@ -106,7 +118,9 @@ if 'language' not in st.session_state:
     st.session_state.language = Language.ENGLISH
 if 'user_info' not in st.session_state:
     st.session_state.user_info = None
-
+if 'show_suggestions' not in st.session_state:
+    st.session_state.show_suggestions = False
+    
 # Configure the page
 st.set_page_config(
     page_title="Product Assistant",
@@ -154,9 +168,52 @@ st.markdown("""
     border-radius: 10px;
     border: 2px dashed #72BF6A;
 }
+.product-card {
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    padding: 15px;
+    margin: 10px;
+    background-color: white;
+    text-align: center;
+}
+
+.related-products {
+    padding: 20px;
+    margin: 20px 0;
+    background-color: #f5f5f5;
+    border-radius: 10px;
+}
 </style>
 """, unsafe_allow_html=True)
 
+# Add this function to display the fixed product suggestions
+def display_product_suggestions():
+    if st.session_state.show_suggestions:
+        current_text = UI_TEXT[st.session_state.language]
+        
+        with st.container():
+            st.markdown(f"### {current_text['suggestions_title']}")
+            
+            cols = st.columns(3)
+            
+            # Product 1
+            with cols[0]:
+                with st.container():
+                    st.image("paras_npk.webp", caption="PARAS NPK 12:32:16 50 Kg")
+                    st.markdown("**PARAS NPK 12:32:16 50 Kg**")
+            
+            # Product 2
+            with cols[1]:
+                with st.container():
+                    st.image("mosaic.webp", caption="MOSAIC MOP 50 Kg")
+                    st.markdown("**MOSAIC MOP 50 Kg**")
+            
+            # Product 3
+            with cols[2]:
+                with st.container():
+                    st.image("paras_dap.webp", caption="PARAS DAP 50 Kg")
+                    st.markdown("**PARAS DAP 50 Kg**")
+                    
 # Initialize components
 @st.cache_resource
 def initialize_components():
@@ -329,7 +386,11 @@ def main():
     render_user_form()
 
     current_text = UI_TEXT[st.session_state.language]
-    
+    st.sidebar.checkbox(
+        current_text["show_suggestions"],
+        key="show_suggestions",
+        value=st.session_state.show_suggestions
+    )
     st.title(current_text["title"])
     
     # Welcome message
@@ -341,7 +402,11 @@ def main():
         for i, question in enumerate(current_text["initial_questions"]):
             if cols[i % 2].button(question, key=f"initial_{i}", use_container_width=True):
                 asyncio.run(process_question(question))
-    
+                
+    # Display fixed product suggestions if toggle is on                
+    if st.session_state.show_suggestions:
+        display_product_suggestions()
+        
     # Display chat history
     for message in st.session_state.messages:
         display_chat_message(message)
