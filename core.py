@@ -256,12 +256,7 @@ class QuestionGenerator:
             
             {user_context}
             
-            Generate 4 relevant follow-up questions that a farmer might ask about GAPL Starter.
-            Focus on:
-            - Application methods and timing specific to their crop type if mentioned
-            - Benefits and effectiveness for their particular situation
-            - Compatibility with their farming context
-            - Scientific backing and results relevant to their case
+            Generate 4 relevant follow-up questions that a farmer might ask about this product.
             
             {language_instruction}
             Return ONLY the numbered questions (1-4), one per line.
@@ -278,13 +273,13 @@ class QuestionGenerator:
             
             default_questions = {
                 Language.ENGLISH: [
-                    "Can you provide more details about GAPL Starter?",
+                    "Can you provide more details about the product?",
                     "What are the application methods?",
                     "What results can I expect to see?",
                     "Is it safe for all soil types?"
                 ],
                 Language.HINDI: [
-                    "क्या आप GAPL Starter के बारे में और जानकारी दे सकते हैं?",
+                    "क्या आप के बारे में और जानकारी दे सकते हैं?",
                     "इसे कैसे प्रयोग करें?",
                     "मुझे क्या परिणाम देखने को मिलेंगे?",
                     "क्या यह सभी प्रकार की मिट्टी के लिए सुरक्षित है?"
@@ -353,7 +348,7 @@ class GeminiRAG:
                 user_context = f"""
                 Consider this user context while generating your response:
                 - You are talking to {user_info.name} from {user_info.location}
-                - They {'' if user_info.has_purchased else 'have not '}purchased GAPL Starter
+                - They {'' if user_info.has_purchased else 'have not '}purchased the product
                 - They are growing {user_info.crop_type}
                 
                 Tailor your response to their specific situation, crop type, and location.
@@ -363,9 +358,9 @@ class GeminiRAG:
             
             image_instruction = "The farmer has shared an image of their crop issue. Consider the similar cases found in the analysis." if query_image else ""
             
-            prompt = f"""You are an expert agricultural consultant specializing in GAPL Starter bio-fertilizer. 
+            prompt = f"""You are an expert agricultural consultant specializing in agricultural products. 
             You have extensive hands-on experience with the product and deep knowledge of its applications and benefits.
-            
+
             {language_instruction}
             {image_instruction}
             
