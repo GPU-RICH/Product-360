@@ -20,9 +20,9 @@ from PIL import Image
 # UI Text translations with added image-related content
 UI_TEXT = {
     Language.ENGLISH: {
-        "title": "🌱 GAPL Starter Product Assistant",
+        "title": "🌱 Product Assistant",
         "welcome_message": """
-        👋 Welcome! I'm your GAPL Starter product expert. I can help you with:
+        👋 Welcome! I'm your product expert. I can help you with:
         - Analyzing crop problems through images
         - Product benefits and features
         - Application methods and timing
@@ -33,14 +33,14 @@ UI_TEXT = {
         Upload an image of your crop or choose a question below!
         """,
         "input_placeholder": "Type your question here...",
-        "input_label": "Ask me anything about GAPL Starter:",
+        "input_label": "Ask me anything:",
         "clear_chat": "Clear Chat",
         "language_selector": "Select Language",
         "sidebar_title": "User Information",
         "form_name": "Your Name",
         "form_mobile": "Mobile Number",
         "form_location": "Location",
-        "form_purchase": "Have you purchased GAPL Starter?",
+        "form_purchase": "Have you purchased this product?",
         "form_crop": "What crop are you growing?",
         "form_submit": "Save Information",
         "form_success": "✅ Information saved successfully!",
@@ -51,16 +51,16 @@ UI_TEXT = {
         "similar_cases": "Similar Cases Found:",
         "case_confidence": "Match Confidence:",
         "initial_questions": [
-            "What are the main benefits of GAPL Starter?",
-            "How do I apply GAPL Starter correctly?",
-            "Which crops is GAPL Starter suitable for?",
+            "What are the main benefits?",
+            "How do I apply this correctly?",
+            "Which crops is this suitable for?",
             "What is the recommended dosage?"
         ]
     },
     Language.HINDI: {
-        "title": "🌱 GAPL स्टार्टर उत्पाद सहायक",
+        "title": "🌱 उत्पाद सहायक",
         "welcome_message": """
-        👋 नमस्ते! मैं आपका GAPL स्टार्टर उत्पाद विशेषज्ञ हूं। मैं आपकी इन चीज़ों में मदद कर सकता हूं:
+        👋 नमस्ते! मैं आपका उत्पाद विशेषज्ञ हूं। मैं आपकी इन चीज़ों में मदद कर सकता हूं:
         - छवियों के माध्यम से फसल की समस्याओं का विश्लेषण
         - उत्पाद के लाभ और विशेषताएं
         - प्रयोग विधि और समय
@@ -71,14 +71,14 @@ UI_TEXT = {
         अपनी फसल की तस्वीर अपलोड करें या नीचे से कोई प्रश्न चुनें!
         """,
         "input_placeholder": "अपना प्रश्न यहां टाइप करें...",
-        "input_label": "GAPL स्टार्टर के बारे में कुछ भी पूछें:",
+        "input_label": "कुछ भी पूछें:",
         "clear_chat": "चैट साफ़ करें",
         "language_selector": "भाषा चुनें",
         "sidebar_title": "उपयोगकर्ता जानकारी",
         "form_name": "आपका नाम",
         "form_mobile": "मोबाइल नंबर",
         "form_location": "स्थान",
-        "form_purchase": "क्या आपने GAPL स्टार्टर खरीदा है?",
+        "form_purchase": "क्या आपने खरीदा है?",
         "form_crop": "आप कौन सी फसल उगा रहे हैं?",
         "form_submit": "जानकारी सहेजें",
         "form_success": "✅ जानकारी सफलतापूर्वक सहेजी गई!",
@@ -89,9 +89,9 @@ UI_TEXT = {
         "similar_cases": "समान मामले मिले:",
         "case_confidence": "मेल विश्वास:",
         "initial_questions": [
-            "GAPL स्टार्टर के मुख्य लाभ क्या हैं?",
-            "GAPL स्टार्टर का प्रयोग कैसे करें?",
-            "GAPL स्टार्टर किन फसलों के लिए उपयुक्त है?",
+            "मुख्य लाभ क्या हैं?",
+            "प्रयोग कैसे करें?",
+            "किन फसलों के लिए उपयुक्त है?",
             "अनुशंसित मात्रा क्या है?"
         ]
     }
@@ -115,7 +115,7 @@ if 'current_image' not in st.session_state:
 
 # Configure the page
 st.set_page_config(
-    page_title="GAPL Starter Assistant",
+    page_title="Product 360 Assistant",
     page_icon="🌱",
     layout="wide"
 )
