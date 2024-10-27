@@ -142,39 +142,72 @@ class QuestionGenerator:
         try:
             chat = self.model.start_chat(history=[])
             
-            # Force language instruction to the start of the prompt
-            language_prefix = (
-                "You must generate questions in Hindi using Devanagari script only. Do not include any English text in the questions. " 
+            # First, set the language context
+            if language == Language.HINDI:
+                system_prompt = """You are now in Hindi-only mode. 
+                इस चैट में आप केवल हिंदी में प्रश्न तैयार करेंगे।
+                सभी प्रश्न देवनागरी लिपि में होने चाहिए।
+                अंग्रेजी का प्रयोग बिल्कुल नहीं करना है।"""
+            else:
+                system_prompt = "You are now in English-only mode. Generate all questions in English only."
+                
+            chat.send_message(system_prompt)
+            
+            # Build the main prompt with strong language enforcement
+            language_instruction = (
+                """आपको सभी प्रश्न केवल हिंदी में बनाने हैं। प्रत्येक प्रश्न देवनागरी लिपि में होना चाहिए।
+                किसी भी स्थिति में अंग्रेजी का प्रयोग न करें।"""
                 if language == Language.HINDI
-                else "Generate questions in English only. "
+                else "Generate all questions in English only."
             )
             
             user_context = ""
             if user_info:
-                user_context = f"""
-                Consider this user context while generating questions:
-                - User Name: {user_info.name}
-                - Location: {user_info.location}
-                - Product Purchase Status: {"Has purchased" if user_info.has_purchased else "Has not purchased"}
-                - Crop Type: {user_info.crop_type}
-                """
+                user_context = (
+                    f"""
+                    निम्नलिखित जानकारी के आधार पर प्रश्न तैयार करें:
+                    - किसान: {user_info.name}
+                    - स्थान: {user_info.location}
+                    - उत्पाद खरीदा: {'हां' if user_info.has_purchased else 'नहीं'}
+                    - फसल: {user_info.crop_type}
+                    """
+                    if language == Language.HINDI
+                    else f"""
+                    Consider this context while generating questions:
+                    - Farmer: {user_info.name}
+                    - Location: {user_info.location}
+                    - Has purchased: {'Yes' if user_info.has_purchased else 'No'}
+                    - Crop: {user_info.crop_type}
+                    """
+                )
             
-            prompt = f"""{language_prefix}
-            Based on this product information interaction:
+            base_prompt = (
+                f"""इस बातचीत के आधार पर प्रश्न तैयार करें:
+
+                पिछला प्रश्न: {question}
+                दिया गया उत्तर: {answer}
+
+                {language_instruction}
+                
+                {user_context}
+
+                कृपया 4 संबंधित प्रश्न तैयार करें जो एक किसान पूछ सकता है।
+                प्रत्येक प्रश्न नई लाइन में लिखें और क्रमांक दें (1-4)।"""
+                if language == Language.HINDI
+                else f"""Based on this conversation:
+
+                Previous question: {question}
+                Given answer: {answer}
+
+                {language_instruction}
+                
+                {user_context}
+
+                Generate 4 relevant follow-up questions a farmer might ask.
+                Number each question (1-4) and put each on a new line."""
+            )
             
-            Question: {question}
-            Answer: {answer}
-            
-            {user_context}
-            
-            Generate 4 relevant follow-up questions that a farmer might ask about the product.
-            Each question should be natural and contextually relevant.
-            
-            Return ONLY the numbered questions (1-4), one per line.
-            Ensure every question is in the specified language.
-            """
-            
-            response = chat.send_message(prompt).text
+            response = chat.send_message(base_prompt).text
             
             questions = []
             for line in response.split('\n'):
@@ -182,6 +215,17 @@ class QuestionGenerator:
                 if line and (line.startswith('1.') or line.startswith('2.') or 
                            line.startswith('3.') or line.startswith('4.')):
                     questions.append(line.split('.', 1)[1].strip())
+            
+            # Verify language and retry if needed for Hindi
+            if language == Language.HINDI and not all(any(ord(c) >= 0x900 and ord(c) <= 0x97F for c in q) for q in questions):
+                force_hindi = """आपके प्रश्न हिंदी में नहीं थे। कृपया सभी प्रश्न पूरी तरह से हिंदी में दोबारा तैयार करें।"""
+                response = chat.send_message(force_hindi).text
+                questions = []
+                for line in response.split('\n'):
+                    line = line.strip()
+                    if line and (line.startswith('1.') or line.startswith('2.') or 
+                               line.startswith('3.') or line.startswith('4.')):
+                        questions.append(line.split('.', 1)[1].strip())
             
             default_questions = {
                 Language.ENGLISH: [
@@ -311,50 +355,85 @@ class GeminiRAG:
         try:
             chat = self.model.start_chat(history=[])
             
-            # Force language instruction to the start of the prompt
-            language_prefix = (
-                "You must respond in Hindi using Devanagari script. Do not use any English in your response except for technical terms if necessary. " 
+            # First, set the language context with a system message
+            if language == Language.HINDI:
+                system_prompt = """You are now in Hindi-only mode. 
+                इस चैट में आप केवल हिंदी में उत्तर देंगे।
+                आपको हर उत्तर देवनागरी लिपि में देना है।
+                तकनीकी शब्दों को छोड़कर अंग्रेजी का प्रयोग बिल्कुल नहीं करना है।
+                यह सेटिंग पूरी बातचीत के लिए लागू रहेगी।"""
+            else:
+                system_prompt = "You are now in English-only mode. All responses must be in English."
+            
+            chat.send_message(system_prompt)
+            
+            # Build the main prompt with strong language enforcement
+            language_instruction = (
+                """आपको अपना उत्तर बिल्कुल हिंदी में ही देना है। किसी भी स्थिति में अंग्रेजी का प्रयोग न करें (तकनीकी शब्दों को छोड़कर)।
+                सुनिश्चित करें कि आपका पूरा उत्तर हिंदी में हो और देवनागरी लिपि का प्रयोग करें।"""
                 if language == Language.HINDI
-                else "Respond in English only. "
+                else "Ensure your entire response is in English only."
             )
             
             user_context = ""
             if user_info:
-                user_context = f"""
-                Consider this user context while generating your response:
-                - You are talking to {user_info.name} from {user_info.location}
-                - They {'' if user_info.has_purchased else 'have not '}purchased the product
-                - They are growing {user_info.crop_type}
+                user_context = (
+                    f"""
+                    निम्नलिखित उपयोगकर्ता जानकारी का ध्यान रखें:
+                    - किसान का नाम: {user_info.name}
+                    - स्थान: {user_info.location}
+                    - उत्पाद खरीदा है: {'हां' if user_info.has_purchased else 'नहीं'}
+                    - फसल का प्रकार: {user_info.crop_type}
+                    """
+                    if language == Language.HINDI
+                    else f"""
+                    Consider this user context:
+                    - Farmer's name: {user_info.name}
+                    - Location: {user_info.location}
+                    - Has purchased: {'Yes' if user_info.has_purchased else 'No'}
+                    - Crop type: {user_info.crop_type}
+                    """
+                )
+
+            base_prompt = (
+                f"""आप एक कृषि विशेषज्ञ हैं जो एंटोकिल बायो-फर्टिलाइजर में विशेषज्ञता रखते हैं।
                 
-                Tailor your response to their specific situation, crop type, and location.
-                If they haven't purchased, focus on benefits and value proposition.
-                If they have purchased, focus on optimal usage and maximizing results.
-                """
-            
-            prompt = f"""{language_prefix}
-            You are an expert agricultural consultant specializing in the product bio-fertilizer. 
-            You have extensive hands-on experience with the product and deep knowledge of its applications and benefits.
-            
-            {user_context}
-            
-            Background information to inform your response:
-            {context}
+                {language_instruction}
+                
+                {user_context}
+                
+                संदर्भ जानकारी:
+                {context}
 
-            Question from farmer: {question}
+                किसान का प्रश्न: {question}
 
-            Respond naturally as an expert would, without referencing any "provided information" or documentation.
-            Your response should be:
-            - Confident and authoritative
-            - Direct and practical
-            - Focused on helping farmers succeed
-            - Based on product expertise and their specific context
-            - Tailored to their crop type and farming situation
+                कृपया एक विशेषज्ञ के रूप में स्पष्ट और व्यावहारिक उत्तर दें।"""
+                if language == Language.HINDI
+                else f"""You are an agricultural expert specializing in Entokill bio-fertilizer.
+                
+                {language_instruction}
+                
+                {user_context}
+                
+                Reference information:
+                {context}
+
+                Farmer's question: {question}
+
+                Please provide a clear and practical response as an expert."""
+            )
             
-            Remember to maintain the specified language throughout your entire response.
-            """
+            # Send the final prompt
+            response = chat.send_message(base_prompt).text
             
-            response = chat.send_message(prompt)
-            return response.text
+            # Verify language and retry if needed
+            if language == Language.HINDI and not any(ord(c) >= 0x900 and ord(c) <= 0x97F for c in response):
+                # If no Devanagari characters found, force regeneration in Hindi
+                force_hindi = """आपका उत्तर हिंदी में नहीं था। कृपया अपना उत्तर पूरी तरह से हिंदी में दें।
+                पिछला प्रश्न दोबारा देख कर हिंदी में उत्तर दें।"""
+                response = chat.send_message(force_hindi).text
+            
+            return response
             
         except Exception as e:
             logging.error(f"Error generating answer: {str(e)}")
