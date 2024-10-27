@@ -557,3 +557,6 @@ def handle_error(error: Exception):
     
     st.error(error_message)
     logging.error(f"Error in app: {str(error)}")
+
+if __name__ == "__main__":
+    main()
