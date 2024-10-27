@@ -9,4 +9,4 @@ google-generativeai
 dataclasses
 faiss-cpu
 streamlit
-googletrans-py
+pillow
