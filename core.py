@@ -300,14 +300,14 @@ class GeminiRAG:
     def __init__(self, api_key: str, image_processor: ImageProcessor):
         genai.configure(api_key=api_key)
         self.generation_config = {
-            "temperature": 0,
+            "temperature": 0.1,
             "top_p": 0.95,
             "top_k": 64,
             "max_output_tokens": 8192,
             "response_mime_type": "text/plain",
         }
         self.model = genai.GenerativeModel(
-            model_name="gemini-1.5-pro",
+            model_name="gemini-1.5-flash",
             generation_config=self.generation_config
         )
         self.image_processor = image_processor
