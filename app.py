@@ -3,7 +3,8 @@ from typing import List, Dict, Any, Optional
 import asyncio
 from PIL import Image
 import io
-from .core import ChatConfig, ChatLogger, ChatMemory, QuestionGenerator, GeminiRAG, ProductDatabase,UserManager, UserInfo
+from .core import (ChatConfig, ChatLogger, ChatMemory, QuestionGenerator, 
+                  GeminiRAG, ProductDatabase, UserManager, UserInfo)
 
 # UI Text in Hindi
 UI_TEXT = {
