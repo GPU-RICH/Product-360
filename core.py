@@ -330,9 +330,28 @@ class GeminiRAG:
             "top_k": 64,
             "max_output_tokens": 8192,
         }
+        self.safety_settings = [
+            {
+                "category": "HARM_CATEGORY_HATE_SPEECH",
+                "threshold": "BLOCK_NONE",
+            },
+            {
+                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                "threshold": "BLOCK_NONE",
+            },
+            {
+                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                "threshold": "BLOCK_NONE",
+            },
+            {
+                "category": "HARM_CATEGORY_HARASSMENT",
+                "threshold": "BLOCK_NONE",
+            },
+        ]
         self.model = genai.GenerativeModel(
             model_name="gemini-1.5-flash",
-            generation_config=self.generation_config
+            generation_config=self.generation_config,
+            safety_settings=self.safety_settings
         )
         self.image_processor = ImageProcessor(api_key)
         
@@ -355,93 +374,88 @@ class GeminiRAG:
         try:
             chat = self.model.start_chat(history=[])
             
-            # First, set the language context with a system message
+            # Build a stronger system prompt for Hindi
             if language == Language.HINDI:
-                system_prompt = """You are now in Hindi-only mode. 
-                इस चैट में आप केवल हिंदी में उत्तर देंगे।
-                आपको हर उत्तर देवनागरी लिपि में देना है।
-                तकनीकी शब्दों को छोड़कर अंग्रेजी का प्रयोग बिल्कुल नहीं करना है।
-                यह सेटिंग पूरी बातचीत के लिए लागू रहेगी।"""
+                system_prompt = """
+                प्रणाली निर्देश: आपको अब से केवल हिंदी में उत्तर देना है।
+                
+                महत्वपूर्ण नियम:
+                1. हर उत्तर अनिवार्य रूप से हिंदी में होना चाहिए
+                2. केवल देवनागरी लिपि का प्रयोग करें
+                3. अंग्रेजी शब्दों का प्रयोग बिल्कुल न करें (तकनीकी शब्दों को छोड़कर)
+                4. वाक्य संरचना पूर्णतः हिंदी व्याकरण के अनुसार होनी चाहिए
+                5. यदि कोई तकनीकी शब्द है, तो उसका हिंदी अनुवाद भी दें
+                
+                उदाहरण:
+                ❌ Wrong: "Fertilizer का प्रयोग करें"
+                ✅ Correct: "उर्वरक (fertilizer) का प्रयोग करें"
+                
+                कृपया इन निर्देशों का कड़ाई से पालन करें।
+                """
             else:
-                system_prompt = "You are now in English-only mode. All responses must be in English."
+                system_prompt = "System Instruction: Please respond only in English."
             
-            chat.send_message(system_prompt)
+            # First send system prompt and get acknowledgment
+            response = chat.send_message(system_prompt)
             
-            # Build the main prompt with strong language enforcement
-            language_instruction = (
-                """आपको अपना उत्तर बिल्कुल हिंदी में ही देना है। किसी भी स्थिति में अंग्रेजी का प्रयोग न करें (तकनीकी शब्दों को छोड़कर)।
-                सुनिश्चित करें कि आपका पूरा उत्तर हिंदी में हो और देवनागरी लिपि का प्रयोग करें।"""
-                if language == Language.HINDI
-                else "Ensure your entire response is in English only."
-            )
-            
+            # Build comprehensive prompt with context
             user_context = ""
             if user_info:
-                user_context = (
-                    f"""
-                    निम्नलिखित उपयोगकर्ता जानकारी का ध्यान रखें:
-                    - किसान का नाम: {user_info.name}
-                    - स्थान: {user_info.location}
-                    - उत्पाद खरीदा है: {'हां' if user_info.has_purchased else 'नहीं'}
-                    - फसल का प्रकार: {user_info.crop_type}
-                    """
-                    if language == Language.HINDI
-                    else f"""
-                    Consider this user context:
-                    - Farmer's name: {user_info.name}
-                    - Location: {user_info.location}
-                    - Has purchased: {'Yes' if user_info.has_purchased else 'No'}
-                    - Crop type: {user_info.crop_type}
-                    """
-                )
+                user_context = """
+                किसान की जानकारी:
+                - नाम: {user_info.name}
+                - स्थान: {user_info.location}
+                - उत्पाद खरीदा: {'हाँ' if user_info.has_purchased else 'नहीं'}
+                - फसल: {user_info.crop_type}
+                """ if language == Language.HINDI else f"""
+                Farmer Info:
+                - Name: {user_info.name}
+                - Location: {user_info.location}
+                - Purchased: {'Yes' if user_info.has_purchased else 'No'}
+                - Crop: {user_info.crop_type}
+                """
 
-            base_prompt = (
-                f"""आप एक कृषि विशेषज्ञ हैं जो एंटोकिल बायो-फर्टिलाइजर में विशेषज्ञता रखते हैं।
-                
-                {language_instruction}
-                
-                {user_context}
-                
-                संदर्भ जानकारी:
-                {context}
-
-                किसान का प्रश्न: {question}
-
-                कृपया एक विशेषज्ञ के रूप में स्पष्ट और व्यावहारिक उत्तर दें।"""
-                if language == Language.HINDI
-                else f"""You are an agricultural expert specializing in Entokill bio-fertilizer.
-                
-                {language_instruction}
-                
-                {user_context}
-                
-                Reference information:
-                {context}
-
-                Farmer's question: {question}
-
-                Please provide a clear and practical response as an expert."""
-            )
+            prompt = f"""
+            {user_context}
             
-            # Send the final prompt
-            response = chat.send_message(base_prompt).text
+            संदर्भ जानकारी:
+            {context}
             
-            # Verify language and retry if needed
-            if language == Language.HINDI and not any(ord(c) >= 0x900 and ord(c) <= 0x97F for c in response):
-                # If no Devanagari characters found, force regeneration in Hindi
-                force_hindi = """आपका उत्तर हिंदी में नहीं था। कृपया अपना उत्तर पूरी तरह से हिंदी में दें।
-                पिछला प्रश्न दोबारा देख कर हिंदी में उत्तर दें।"""
-                response = chat.send_message(force_hindi).text
+            किसान का प्रश्न: {question}
+            """ if language == Language.HINDI else f"""
+            {user_context}
+            
+            Reference Information:
+            {context}
+            
+            Farmer's Question: {question}
+            """
+            
+            response = chat.send_message(prompt).text
+            
+            # Validate Hindi response and retry if needed
+            if language == Language.HINDI:
+                if not any(ord(c) >= 0x900 and ord(c) <= 0x97F for c in response):
+                    retry_prompt = """
+                    आपका पिछला उत्तर हिंदी में नहीं था। कृपया वही जानकारी पूर्णतः हिंदी में दें।
+                    याद रखें:
+                    - पूरा उत्तर देवनागरी में होना चाहिए
+                    - अंग्रेजी का प्रयोग न करें
+                    - स्पष्ट और सरल भाषा का प्रयोग करें
+                    """
+                    response = chat.send_message(retry_prompt).text
+                    
+                    # If still not in Hindi after retry, force a default Hindi response
+                    if not any(ord(c) >= 0x900 and ord(c) <= 0x97F for c in response):
+                        return "क्षमा करें, मैं आपके प्रश्न का उत्तर हिंदी में देने में असमर्थ हूं। कृपया पुनः प्रयास करें।"
             
             return response
             
         except Exception as e:
             logging.error(f"Error generating answer: {str(e)}")
-            default_error = {
-                Language.ENGLISH: "I apologize, but I'm having trouble processing your request. Please try again.",
-                Language.HINDI: "क्षमा करें, मैं आपके प्रश्न को प्रोसेस करने में असमर्थ हूं। कृपया पुनः प्रयास करें।"
-            }
-            return default_error[language]
+            return ("क्षमा करें, तकनीकी समस्या के कारण उत्तर नहीं दे पा रहे हैं। कृपया पुनः प्रयास करें।" 
+                    if language == Language.HINDI 
+                    else "Sorry, we encountered a technical error. Please try again.")
 
 class CustomEmbeddings(Embeddings):
     """Custom embeddings using SentenceTransformer"""
