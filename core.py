@@ -152,7 +152,7 @@ class QuestionGenerator:
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
         self.generation_config = {
-            "temperature": 0.1,  # Slightly higher temperature for more diverse questions
+            "temperature": 0.1,
             "top_p": 0.95,
             "top_k": 64,
             "max_output_tokens": 8192,
@@ -163,7 +163,7 @@ class QuestionGenerator:
         )
         self.translator = SimpleTranslator(api_key)
         
-        # Default questions as fallback
+        # Default questions in both languages
         self.default_questions = {
             Language.ENGLISH: [
                 "Can you provide more details about the product?",
@@ -188,71 +188,83 @@ class QuestionGenerator:
     ) -> List[str]:
         """Generate follow-up questions based on the conversation"""
         try:
-            # Always generate questions in English first
-            chat = self.model.start_chat(history=[])
-            
-            # Create a detailed prompt for question generation
-            prompt = f"""You are an agricultural expert generating follow-up questions for farmers.
+            # Create appropriate prompt based on language
+            if language == Language.HINDI:
+                # Generate questions directly in Hindi
+                chat = self.model.start_chat(history=[])
+                prompt = f"""आप एक कृषि विशेषज्ञ हैं जो किसानों के लिए फॉलो-अप प्रश्न तैयार कर रहे हैं।
 
-            Previous Conversation:
-            Farmer's Question: {question}
-            Given Answer: {answer}
-            
-            {f'''Farmer Context:
-            - Name: {user_info.name}
-            - Location: {user_info.location}
-            - Crop Type: {user_info.crop_type}
-            - Has Purchased: {'Yes' if user_info.has_purchased else 'No'}''' if user_info else ''}
+                पिछली बातचीत:
+                किसान का प्रश्न: {question}
+                दिया गया उत्तर: {answer}
+                
+                {f'''किसान की जानकारी:
+                - नाम: {user_info.name}
+                - स्थान: {user_info.location}
+                - फसल: {user_info.crop_type}
+                - उत्पाद खरीदा: {'हां' if user_info.has_purchased else 'नहीं'}''' if user_info else ''}
 
-            Generate 4 relevant follow-up questions that:
-            1. Build on the previous conversation
-            2. Address practical farming concerns
-            3. Cover different aspects of the topic
-            4. Are specific and actionable
-            5. Help farmers understand the product better
+                4 प्रासंगिक फॉलो-अप प्रश्न तैयार करें जो:
+                1. पिछली बातचीत पर आधारित हों
+                2. व्यावहारिक कृषि संबंधी चिंताओं को संबोधित करें
+                3. विषय के विभिन्न पहलुओं को कवर करें
+                4. विशिष्ट और कार्रवाई योग्य हों
+                5. किसानों को उत्पाद को बेहतर ढंग से समझने में मदद करें
 
-            Format:
-            1. [First Question]
-            2. [Second Question]
-            3. [Third Question]
-            4. [Fourth Question]
+                प्रारूप:
+                1. [पहला प्रश्न]
+                2. [दूसरा प्रश्न]
+                3. [तीसरा प्रश्न]
+                4. [चौथा प्रश्न]
 
-            Keep questions clear, brief, crisp and farmer-friendly."""
-            
+                प्रश्नों को स्पष्ट, संक्षिप्त और किसान-अनुकूल रखें।"""
+            else:
+                # English prompt (unchanged)
+                chat = self.model.start_chat(history=[])
+                prompt = f"""You are an agricultural expert generating follow-up questions for farmers.
+
+                Previous Conversation:
+                Farmer's Question: {question}
+                Given Answer: {answer}
+                
+                {f'''Farmer Context:
+                - Name: {user_info.name}
+                - Location: {user_info.location}
+                - Crop Type: {user_info.crop_type}
+                - Has Purchased: {'Yes' if user_info.has_purchased else 'No'}''' if user_info else ''}
+
+                Generate 4 relevant follow-up questions that:
+                1. Build on the previous conversation
+                2. Address practical farming concerns
+                3. Cover different aspects of the topic
+                4. Are specific and actionable
+                5. Help farmers understand the product better
+
+                Format:
+                1. [First Question]
+                2. [Second Question]
+                3. [Third Question]
+                4. [Fourth Question]
+
+                Keep questions clear, brief, crisp and farmer-friendly."""
+
             response = chat.send_message(prompt).text
             
             # Extract questions from response
             questions = []
             for line in response.split('\n'):
                 line = line.strip()
-                # Match lines starting with 1-4 followed by dot or parenthesis
                 if line and any(line.startswith(f"{i}.") or line.startswith(f"{i})") for i in range(1, 5)):
-                    # Remove the number and any leading characters
                     question = line.split('.', 1)[-1].split(')', 1)[-1].strip()
-                    if question:
-                        questions.append(question)
-            
+                    if question and self.is_valid_question(question):
+                        questions.append(self.sanitize_question(question))
+
             # If we couldn't extract enough questions, add defaults
             while len(questions) < 4:
-                questions.append(self.default_questions[Language.ENGLISH][len(questions)])
-            
+                questions.append(self.default_questions[language][len(questions)])
+
             # Ensure we only have 4 questions
             questions = questions[:4]
-            
-            # If Hindi is requested, translate all questions
-            if language == Language.HINDI:
-                translated_questions = []
-                for q in questions:
-                    try:
-                        hindi_q = await self.translator.to_hindi(q)
-                        translated_questions.append(hindi_q)
-                    except Exception as e:
-                        logging.error(f"Translation error for question: {str(e)}")
-                        # Use default Hindi question as fallback
-                        translated_questions.append(
-                            self.default_questions[Language.HINDI][len(translated_questions)]
-                        )
-                return translated_questions
             
             return questions
             
@@ -277,8 +289,9 @@ class QuestionGenerator:
         """Clean up the generated question"""
         # Remove multiple spaces
         question = ' '.join(question.split())
-        # Ensure proper capitalization
-        question = question[0].upper() + question[1:]
+        # Ensure proper capitalization for English questions only
+        if not any(u'\u0900' <= c <= u'\u097F' for c in question):  # Check if not Hindi
+            question = question[0].upper() + question[1:]
         # Ensure question ends with question mark
         if not question.endswith('?'):
             question += '?'
