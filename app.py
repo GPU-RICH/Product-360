@@ -69,7 +69,7 @@ UI_TEXT = {
     "form_success": "✅ जानकारी सफलतापूर्वक सहेजी गई!",
     "form_error": "❌ जानकारी सहेजने में त्रुटि। कृपया पुनः प्रयास करें।",
     "form_required": "कृपया सभी आवश्यक फ़ील्ड भरें।",
-    "image_upload": "छवि अपलोड करें (वैकल्पिक)",
+    "image_upload": "यदि आपके पास अपनी फसल के बारे में कोई चिंता या प्रश्न है, तो उसकी छवि अपलोड करें।",
     "image_helper": "यदि आपके पास अपनी फसल के बारे में कोई चिंता या प्रश्न है, तो उसकी छवि अपलोड करें।",
     "image_processing": "आपकी छवि प्र्रोसेस की जा रही है...",
     "show_suggestions": "संबंधित उत्पाद दिखाएं",
@@ -114,14 +114,14 @@ st.set_page_config(
 st.markdown("""
 <style>
 .user-message {
-    background-color: #72BF6A;
+    background-color: #98BF64;
     color: black;
     padding: 15px;
     border-radius: 15px;
     margin: 10px 0;
 }
 .assistant-message {
-    background-color: #000000;
+    background-color: #363E35;
     color: #98FB98;
     padding: 15px;
     border-radius: 15px;
