@@ -10,22 +10,27 @@ from core import (
     ProductDatabase, 
     Language,
     UserManager,
-    UserInfo
+    UserInfo,
+    ImageProcessor,
+    init_image_database_from_csv
 )
+import os
+from PIL import Image
 
-# UI Text translations
+# UI Text translations with added image-related content
 UI_TEXT = {
     Language.ENGLISH: {
         "title": "🌱 GAPL Starter Product Assistant",
         "welcome_message": """
-        👋 Welcome! I'm your GAPL Starter product expert. I can help you learn about:
+        👋 Welcome! I'm your GAPL Starter product expert. I can help you with:
+        - Analyzing crop problems through images
         - Product benefits and features
         - Application methods and timing
         - Dosage recommendations
         - Crop compatibility
         - Technical specifications
         
-        Choose a question below or ask your own!
+        Upload an image of your crop or choose a question below!
         """,
         "input_placeholder": "Type your question here...",
         "input_label": "Ask me anything about GAPL Starter:",
@@ -41,6 +46,10 @@ UI_TEXT = {
         "form_success": "✅ Information saved successfully!",
         "form_error": "❌ Error saving information. Please try again.",
         "form_required": "Please fill in all required fields.",
+        "image_upload": "📸 Upload a photo of your crop (optional)",
+        "processing_image": "Analyzing your image...",
+        "similar_cases": "Similar Cases Found:",
+        "case_confidence": "Match Confidence:",
         "initial_questions": [
             "What are the main benefits of GAPL Starter?",
             "How do I apply GAPL Starter correctly?",
@@ -51,14 +60,15 @@ UI_TEXT = {
     Language.HINDI: {
         "title": "🌱 GAPL स्टार्टर उत्पाद सहायक",
         "welcome_message": """
-        👋 नमस्ते! मैं आपका GAPL स्टार्टर उत्पाद विशेषज्ञ हूं। मैं आपको इन विषयों में मदद कर सकता हूं:
+        👋 नमस्ते! मैं आपका GAPL स्टार्टर उत्पाद विशेषज्ञ हूं। मैं आपकी इन चीज़ों में मदद कर सकता हूं:
+        - छवियों के माध्यम से फसल की समस्याओं का विश्लेषण
         - उत्पाद के लाभ और विशेषताएं
         - प्रयोग विधि और समय
         - खुराक की सिफारिशें
         - फसल अनुकूलता
         - तकनीकी विवरण
         
-        नीचे दिए गए प्रश्नों में से चुनें या अपना प्रश्न पूछें!
+        अपनी फसल की तस्वीर अपलोड करें या नीचे से कोई प्रश्न चुनें!
         """,
         "input_placeholder": "अपना प्रश्न यहां टाइप करें...",
         "input_label": "GAPL स्टार्टर के बारे में कुछ भी पूछें:",
@@ -74,6 +84,10 @@ UI_TEXT = {
         "form_success": "✅ जानकारी सफलतापूर्वक सहेजी गई!",
         "form_error": "❌ जानकारी सहेजने में त्रुटि। कृपया पुनः प्रयास करें।",
         "form_required": "कृपया सभी आवश्यक फ़ील्ड भरें।",
+        "image_upload": "📸 अपनी फसल की तस्वीर अपलोड करें (वैकल्पिक)",
+        "processing_image": "आपकी छवि का विश्लेषण किया जा रहा है...",
+        "similar_cases": "समान मामले मिले:",
+        "case_confidence": "मेल विश्वास:",
         "initial_questions": [
             "GAPL स्टार्टर के मुख्य लाभ क्या हैं?",
             "GAPL स्टार्टर का प्रयोग कैसे करें?",
@@ -96,6 +110,8 @@ if 'language' not in st.session_state:
     st.session_state.language = Language.ENGLISH
 if 'user_info' not in st.session_state:
     st.session_state.user_info = None
+if 'current_image' not in st.session_state:
+    st.session_state.current_image = None
 
 # Configure the page
 st.set_page_config(
@@ -104,7 +120,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS
+# Custom CSS with added image styling
 st.markdown("""
 <style>
 .user-message {
@@ -121,6 +137,25 @@ st.markdown("""
     border-radius: 15px;
     margin: 10px 0;
 }
+.image-container {
+    border: 2px solid #72BF6A;
+    border-radius: 10px;
+    padding: 10px;
+    margin: 10px 0;
+}
+.similar-case {
+    background-color: #1E1E1E;
+    border: 1px solid #72BF6A;
+    padding: 10px;
+    border-radius: 10px;
+    margin: 5px 0;
+}
+.confidence-meter {
+    height: 10px;
+    background-color: #72BF6A;
+    border-radius: 5px;
+    margin: 5px 0;
+}
 .stButton > button {
     background-color: #212B2A;
     color: white;
@@ -132,12 +167,6 @@ st.markdown("""
 .stButton > button:hover {
     background-color: #45a049;
 }
-.language-selector {
-    position: fixed;
-    top: 1rem;
-    right: 1rem;
-    z-index: 1000;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -147,7 +176,13 @@ def initialize_components():
     config = ChatConfig()
     logger = ChatLogger(config.log_file)
     question_gen = QuestionGenerator(config.gemini_api_key)
-    rag = GeminiRAG(config.gemini_api_key)
+    image_processor = ImageProcessor(config)
+    
+    # Initialize image database from CSV
+    if os.path.exists("crop_problems.csv"):
+        init_image_database_from_csv("crop_problems.csv", image_processor)
+    
+    rag = GeminiRAG(config.gemini_api_key, image_processor)
     db = ProductDatabase(config)
     user_manager = UserManager(config.user_data_file)
     return config, logger, question_gen, rag, db, user_manager
@@ -166,44 +201,64 @@ try:
 except Exception as e:
     st.error(f"Error loading database: {str(e)}")
 
-async def process_question(question: str):
+async def process_question(question: str, image: Image.Image = None):
+    """Process user question with optional image"""
     try:
+        # Get text-based relevant docs
         relevant_docs = db.search(question)
         context = rag.create_context(relevant_docs)
-        answer = await rag.get_answer(
-            question, 
-            context, 
-            st.session_state.language,
-            st.session_state.user_info
+        
+        # Get answer with image analysis if image is provided
+        answer, similar_images = await rag.get_answer(
+            question=question,
+            context=context,
+            language=st.session_state.language,
+            user_info=st.session_state.user_info,
+            query_image=image
         )
+        
+        # Generate follow-up questions
         follow_up_questions = await question_gen.generate_questions(
-            question, 
-            answer, 
-            st.session_state.language,
-            st.session_state.user_info
+            question=question,
+            answer=answer,
+            language=st.session_state.language,
+            user_info=st.session_state.user_info,
+            has_image=image is not None
         )
         
-        st.session_state.chat_memory.add_interaction(question, answer)
+        # Log interaction
+        st.session_state.chat_memory.add_interaction(
+            question=question,
+            answer=answer,
+            has_image=image is not None
+        )
         logger.log_interaction(
-            question, 
-            answer, 
-            st.session_state.language,
-            st.session_state.user_info
+            question=question,
+            answer=answer,
+            language=st.session_state.language,
+            user_info=st.session_state.user_info,
+            has_image=image is not None
         )
         
+        # Update message counter
         st.session_state.message_counter += 1
         
+        # Add messages to chat history
         st.session_state.messages.append({
             "role": "user",
             "content": question,
+            "image": image,
             "message_id": st.session_state.message_counter
         })
+        
         st.session_state.messages.append({
             "role": "assistant",
             "content": answer,
+            "similar_images": similar_images,
             "questions": follow_up_questions,
             "message_id": st.session_state.message_counter
         })
+        
     except Exception as e:
         st.error(f"Error processing question: {str(e)}")
 
@@ -213,7 +268,6 @@ def handle_submit():
         st.session_state.user_input = ""
 
 def handle_language_change():
-    # Clear chat when language changes
     st.session_state.messages = []
     st.session_state.chat_memory.clear_history()
     st.session_state.message_counter = 0
@@ -253,12 +307,14 @@ def render_user_form():
                 st.sidebar.warning(current_text["form_required"])
 
 def main():
+    current_text = UI_TEXT[st.session_state.language]
+    
     # Language selector
     with st.container():
         cols = st.columns([3, 1])
         with cols[1]:
             selected_language = st.selectbox(
-                UI_TEXT[st.session_state.language]["language_selector"],
+                current_text["language_selector"],
                 options=[Language.ENGLISH, Language.HINDI],
                 format_func=lambda x: "English" if x == Language.ENGLISH else "हिंदी",
                 key="language_selector",
@@ -266,15 +322,14 @@ def main():
                 on_change=handle_language_change
             )
             st.session_state.language = selected_language
-
+    
     # Render user form in sidebar
     render_user_form()
-
-    current_text = UI_TEXT[st.session_state.language]
     
+    # Main title
     st.title(current_text["title"])
     
-    # Welcome message
+    # Welcome message for new chat
     if not st.session_state.messages:
         st.markdown(current_text["welcome_message"])
         
@@ -284,19 +339,37 @@ def main():
             if cols[i % 2].button(question, key=f"initial_{i}", use_container_width=True):
                 asyncio.run(process_question(question))
     
-    # Display chat history
+    # Display chat history with images
     for message in st.session_state.messages:
         if message["role"] == "user":
             st.markdown(
                 f'<div class="user-message">👤 {message["content"]}</div>',
                 unsafe_allow_html=True
             )
+            if message.get("image"):
+                with st.container():
+                    st.image(message["image"], caption="Uploaded Image", use_column_width=True)
         else:
             st.markdown(
                 f'<div class="assistant-message">🌱 {message["content"]}</div>',
                 unsafe_allow_html=True
             )
             
+            # Display similar images if any
+            if message.get("similar_images"):
+                st.subheader(current_text["similar_cases"])
+                cols = st.columns(len(message["similar_images"]))
+                for i, img_data in enumerate(message["similar_images"]):
+                    with cols[i]:
+                        with st.container():
+                            st.image(img_data["path"], use_column_width=True)
+                            st.markdown(f'<div class="similar-case">'
+                                      f'<p><strong>Problem:</strong> {img_data["problem_type"]}</p>'
+                                      f'<p>{img_data["description"]}</p>'
+                                      f'<p><strong>{current_text["case_confidence"]}</strong></p>'
+                                      f'</div>', unsafe_allow_html=True)
+            
+            # Display follow-up questions
             if message.get("questions"):
                 cols = st.columns(2)
                 for i, question in enumerate(message["questions"]):
@@ -307,8 +380,27 @@ def main():
                     ):
                         asyncio.run(process_question(question))
     
-    # Input area
+    # Input area with image upload
     with st.container():
+        # Image upload
+        uploaded_file = st.file_uploader(
+            current_text["image_upload"],
+            type=["jpg", "jpeg", "png"],
+            key="image_upload"
+        )
+        
+        if uploaded_file:
+            try:
+                image = Image.open(uploaded_file)
+                st.session_state.current_image = image
+                st.image(image, caption="Uploaded Image", use_column_width=True)
+            except Exception as e:
+                st.error(f"Error loading image: {str(e)}")
+                st.session_state.current_image = None
+        else:
+            st.session_state.current_image = None
+        
+        # Text input
         st.text_input(
             current_text["input_label"],
             key="user_input",
@@ -316,14 +408,19 @@ def main():
             on_change=handle_submit
         )
         
-        # Process submitted question
+        # Process submitted question with image
         if st.session_state.submitted_question:
-            asyncio.run(process_question(st.session_state.submitted_question))
+            with st.spinner(current_text["processing_image"] if st.session_state.current_image else ""):
+                asyncio.run(process_question(
+                    st.session_state.submitted_question,
+                    st.session_state.current_image
+                ))
             st.session_state.submitted_question = None
+            st.session_state.current_image = None
             st.rerun()
         
-        cols = st.columns([4, 1])
         # Clear chat button
+        cols = st.columns([4, 1])
         if cols[1].button(current_text["clear_chat"], use_container_width=True):
             st.session_state.messages = []
             st.session_state.chat_memory.clear_history()
