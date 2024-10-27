@@ -14,8 +14,8 @@ from PIL import Image
 import io
 
 class Language(Enum):
-    ENGLISH = "english"
-    HINDI = "hindi"
+    ENGLISH = "en-US"
+    HINDI = "hi"
 
 @dataclass
 class UserInfo:
@@ -324,34 +324,16 @@ class ImageProcessor:
 class GeminiRAG:
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
+        # Set default language settings for the model
         self.generation_config = {
             "temperature": 0.1,
             "top_p": 0.95,
             "top_k": 64,
             "max_output_tokens": 8192,
         }
-        self.safety_settings = [
-            {
-                "category": "HARM_CATEGORY_HATE_SPEECH",
-                "threshold": "BLOCK_NONE",
-            },
-            {
-                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                "threshold": "BLOCK_NONE",
-            },
-            {
-                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                "threshold": "BLOCK_NONE",
-            },
-            {
-                "category": "HARM_CATEGORY_HARASSMENT",
-                "threshold": "BLOCK_NONE",
-            },
-        ]
         self.model = genai.GenerativeModel(
             model_name="gemini-1.5-flash",
-            generation_config=self.generation_config,
-            safety_settings=self.safety_settings
+            generation_config=self.generation_config
         )
         self.image_processor = ImageProcessor(api_key)
         
@@ -372,90 +354,59 @@ class GeminiRAG:
             )
         
         try:
+            # Create chat with proper language configuration
             chat = self.model.start_chat(history=[])
             
-            # Build a stronger system prompt for Hindi
+            # Set content in the target language
             if language == Language.HINDI:
-                system_prompt = """
-                प्रणाली निर्देश: आपको अब से केवल हिंदी में उत्तर देना है।
+                content = {
+                    "role": "user",
+                    "parts": [
+                        {"text": """आपको हिंदी में उत्तर देने के लिए कॉन्फ़िगर किया जा रहा है। कृपया इस संदेश की पुष्टि करें।"""}
+                    ]
+                }
+                # Send initial configuration
+                response = await chat.send_message(content)
                 
-                महत्वपूर्ण नियम:
-                1. हर उत्तर अनिवार्य रूप से हिंदी में होना चाहिए
-                2. केवल देवनागरी लिपि का प्रयोग करें
-                3. अंग्रेजी शब्दों का प्रयोग बिल्कुल न करें (तकनीकी शब्दों को छोड़कर)
-                4. वाक्य संरचना पूर्णतः हिंदी व्याकरण के अनुसार होनी चाहिए
-                5. यदि कोई तकनीकी शब्द है, तो उसका हिंदी अनुवाद भी दें
+                # Prepare the main query in Hindi
+                context_prompt = f"""
+                संदर्भ जानकारी: {context}
                 
-                उदाहरण:
-                ❌ Wrong: "Fertilizer का प्रयोग करें"
-                ✅ Correct: "उर्वरक (fertilizer) का प्रयोग करें"
+                किसान की जानकारी:
+                नाम: {user_info.name if user_info else 'अज्ञात'}
+                स्थान: {user_info.location if user_info else 'अज्ञात'}
+                फसल: {user_info.crop_type if user_info else 'अज्ञात'}
                 
-                कृपया इन निर्देशों का कड़ाई से पालन करें।
+                किसान का प्रश्न: {question}
                 """
             else:
-                system_prompt = "System Instruction: Please respond only in English."
-            
-            # First send system prompt and get acknowledgment
-            response = chat.send_message(system_prompt)
-            
-            # Build comprehensive prompt with context
-            user_context = ""
-            if user_info:
-                user_context = """
-                किसान की जानकारी:
-                - नाम: {user_info.name}
-                - स्थान: {user_info.location}
-                - उत्पाद खरीदा: {'हाँ' if user_info.has_purchased else 'नहीं'}
-                - फसल: {user_info.crop_type}
-                """ if language == Language.HINDI else f"""
+                # English query
+                context_prompt = f"""
+                Context: {context}
+                
                 Farmer Info:
-                - Name: {user_info.name}
-                - Location: {user_info.location}
-                - Purchased: {'Yes' if user_info.has_purchased else 'No'}
-                - Crop: {user_info.crop_type}
+                Name: {user_info.name if user_info else 'Unknown'}
+                Location: {user_info.location if user_info else 'Unknown'}
+                Crop: {user_info.crop_type if user_info else 'Unknown'}
+                
+                Farmer's Question: {question}
                 """
 
-            prompt = f"""
-            {user_context}
+            # Send the query with proper language configuration
+            response = await chat.send_message(
+                content={
+                    "role": "user",
+                    "parts": [{"text": context_prompt}],
+                    "language": language.value  # Use the language code
+                }
+            )
             
-            संदर्भ जानकारी:
-            {context}
-            
-            किसान का प्रश्न: {question}
-            """ if language == Language.HINDI else f"""
-            {user_context}
-            
-            Reference Information:
-            {context}
-            
-            Farmer's Question: {question}
-            """
-            
-            response = chat.send_message(prompt).text
-            
-            # Validate Hindi response and retry if needed
-            if language == Language.HINDI:
-                if not any(ord(c) >= 0x900 and ord(c) <= 0x97F for c in response):
-                    retry_prompt = """
-                    आपका पिछला उत्तर हिंदी में नहीं था। कृपया वही जानकारी पूर्णतः हिंदी में दें।
-                    याद रखें:
-                    - पूरा उत्तर देवनागरी में होना चाहिए
-                    - अंग्रेजी का प्रयोग न करें
-                    - स्पष्ट और सरल भाषा का प्रयोग करें
-                    """
-                    response = chat.send_message(retry_prompt).text
-                    
-                    # If still not in Hindi after retry, force a default Hindi response
-                    if not any(ord(c) >= 0x900 and ord(c) <= 0x97F for c in response):
-                        return "क्षमा करें, मैं आपके प्रश्न का उत्तर हिंदी में देने में असमर्थ हूं। कृपया पुनः प्रयास करें।"
-            
-            return response
+            return response.text
             
         except Exception as e:
             logging.error(f"Error generating answer: {str(e)}")
-            return ("क्षमा करें, तकनीकी समस्या के कारण उत्तर नहीं दे पा रहे हैं। कृपया पुनः प्रयास करें।" 
-                    if language == Language.HINDI 
-                    else "Sorry, we encountered a technical error. Please try again.")
+            return "क्षमा करें, तकनीकी समस्या। कृपया पुनः प्रयास करें।" if language == Language.HINDI else "Sorry, technical error. Please try again."
+
 
 class CustomEmbeddings(Embeddings):
     """Custom embeddings using SentenceTransformer"""
