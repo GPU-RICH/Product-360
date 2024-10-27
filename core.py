@@ -296,29 +296,26 @@ class QuestionGenerator:
             return default_questions[language]
 
 class GeminiRAG:
-    """RAG implementation using Gemini with image processing capabilities"""
+    """RAG implementation using Gemini with proper image handling"""
     def __init__(self, api_key: str, image_processor: ImageProcessor):
         genai.configure(api_key=api_key)
         self.generation_config = {
-            "temperature": 0.1,
+            "temperature": 0,
             "top_p": 0.95,
             "top_k": 64,
             "max_output_tokens": 8192,
+            "response_mime_type": "text/plain",
         }
         self.model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",  # Changed to vision model
-            generation_config=self.generation_config
-        )
-        self.text_model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
+            model_name="gemini-1.5-pro",
             generation_config=self.generation_config
         )
         self.image_processor = image_processor
-        
+
     def create_context(self, relevant_docs: List[Dict[str, Any]]) -> str:
         """Creates a context string from relevant documents"""
         return "\n\n".join(doc['content'] for doc in relevant_docs)
-        
+
     async def get_answer(
         self, 
         question: str, 
@@ -338,32 +335,19 @@ class GeminiRAG:
                 user_context = f"""
                 Consider this user context while generating your response:
                 - You are talking to {user_info.name} from {user_info.location}
-                - They {'' if user_info.has_purchased else 'have not '}purchased GAPL Starter
+                - They {'' if user_info.has_purchased else 'have not '}purchased the product
                 - They are growing {user_info.crop_type}
                 """
 
-            base_prompt = f"""You are an expert agricultural consultant specializing in agricultural products. 
-            You have extensive hands-on experience with the product and deep knowledge of its applications and benefits.
-            
-            {language_instruction}
-            
-            {user_context}
-            
-            Background information:
-            {context}
-
-            Question from farmer: {question}
-
-            Provide a detailed response that:
-            1. If an image is shared, analyze the crop problem visible in the image first
-            2. Explain how the product can help with the identified issues
-            3. Provide specific application recommendations
-            4. Include preventive measures if applicable
-            
-            Keep your response practical and focused on helping the farmer succeed."""
-
             similar_images = []
             if query_image:
+                # Save the PIL Image temporarily
+                temp_path = "temp_image.jpg"
+                query_image.save(temp_path, "JPEG")
+                
+                # Upload image to Gemini
+                image_file = genai.upload_file(temp_path, mime_type="image/jpeg")
+                
                 # Find similar cases using CLIP
                 similar_images = self.image_processor.find_similar_images(query_image)
                 
@@ -375,18 +359,56 @@ class GeminiRAG:
                     f"Solution: {img['solution']}"
                     for img in similar_images
                 ])
-                
-                # Prepare image content for Gemini
-                response = self.model.generate_content(
-                    contents=[
-                        base_prompt,
-                        query_image,
-                        f"\nSimilar cases analysis:\n{image_context}"
+
+                # Start chat with image
+                chat = self.model.start_chat(
+                    history=[
+                        {
+                            "role": "user",
+                            "parts": [
+                                image_file,
+                                f"""I am facing this issue with my {user_info.crop_type if user_info else 'crop'}.
+                                Question: {question}
+                                
+                                {language_instruction}
+                                {user_context}
+                                
+                                Consider this product information:
+                                {context}
+                                
+                                Similar cases found:
+                                {image_context}
+                                
+                                Provide a comprehensive response that:
+                                1. Analyzes the crop problem in the image
+                                2. Explains how the product can help
+                                3. Gives specific application recommendations
+                                4. Suggests preventive measures"""
+                            ],
+                        }
                     ]
                 )
+                
+                # Get response
+                response = chat.send_message("")
+                
+                # Clean up temp file
+                os.remove(temp_path)
+                
             else:
                 # Text-only query
-                response = self.text_model.generate_content(base_prompt)
+                chat = self.model.start_chat()
+                response = chat.send_message(
+                    f"""{question}
+                    
+                    {language_instruction}
+                    {user_context}
+                    
+                    Consider this product information:
+                    {context}
+                    
+                    Provide a detailed response focusing on how the product can help."""
+                )
 
             return response.text, similar_images
             
