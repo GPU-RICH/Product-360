@@ -188,7 +188,7 @@ class QuestionGenerator:
                 दिया गया उत्तर: {answer}
 
                 {language_instruction}
-                
+                ALWAYS REPLY IN HINDI USING DEVNAGRI SCRIPT!!
                 {user_context}
 
                 कृपया 4 संबंधित प्रश्न तैयार करें जो एक किसान पूछ सकता है।
@@ -200,7 +200,7 @@ class QuestionGenerator:
                 Given answer: {answer}
 
                 {language_instruction}
-                
+                ALWAYS REPLY IN ENGLISH!!
                 {user_context}
 
                 Generate 4 relevant follow-up questions a farmer might ask.
@@ -296,7 +296,7 @@ class ImageProcessor:
             prompt = f"""You are an expert agricultural consultant specializing in crop health and product bio-fertilizer.
             
             {language_instruction}
-            
+            ALWAYS REPLY IN HINDI USING DEVNAGRI SCRIPT!!
             {user_context}
             
             Analyze the image and address the user's query: {query}
@@ -378,6 +378,7 @@ class GeminiRAG:
                 फसल: {user_info.crop_type if user_info else 'अज्ञात'}
                 
                 किसान का प्रश्न: {question}
+                ALWAYS REPLY IN HINDI USING DEVNAGRI SCRIPT!!
                 """
             else:
                 # English query
@@ -390,6 +391,7 @@ class GeminiRAG:
                 Crop: {user_info.crop_type if user_info else 'Unknown'}
                 
                 Farmer's Question: {question}
+                ALWAYS REPLY IN ENGLISH!!
                 """
 
             # Send the query with proper language configuration
