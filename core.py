@@ -154,31 +154,29 @@ class QuestionGenerator:
         self.generation_config = {
             "temperature": 0.1,
             "top_p": 0.95,
-            "top_k": 64,
             "max_output_tokens": 8192,
         }
         self.model = genai.GenerativeModel(
             model_name="gemini-1.5-flash",
             generation_config=self.generation_config
         )
-        self.translator = SimpleTranslator(api_key)
         
-        # Default questions in both languages
+        # Simple, practical default questions for both languages
         self.default_questions = {
             Language.ENGLISH: [
-                "Can you provide more details about the product?",
-                "What are the recommended application methods?",
-                "What results can I expect to see?",
-                "Is it safe for all soil types?"
+                "What is the best time to apply this product?",
+                "Have you seen any results after using the product?",
+                "Do you have any concerns about applying it to your crops?",
+                "Would you like to learn about other pest control methods?"
             ],
             Language.HINDI: [
-                "क्या आप उत्पाद के बारे में और जानकारी दे सकते हैं?",
-                "इसे कैसे प्रयोग करें?",
-                "मुझे क्या परिणाम देखने को मिलेंगे?",
-                "क्या यह सभी प्रकार की मिट्टी के लिए सुरक्षित है?"
+                "इस उत्पाद को कब इस्तेमाल करना सबसे अच्छा रहेगा?",
+                "क्या उत्पाद के इस्तेमाल के बाद आपने कोई परिणाम देखा है?",
+                "क्या आपको अपनी फसल पर इसे लगाने को लेकर कोई चिंता है?",
+                "क्या आप कीट नियंत्रण के अन्य तरीकों के बारे में जानना चाहेंगे?"
             ]
         }
-        
+    
     async def generate_questions(
         self, 
         question: str, 
@@ -188,114 +186,61 @@ class QuestionGenerator:
     ) -> List[str]:
         """Generate follow-up questions based on the conversation"""
         try:
-            # Create appropriate prompt based on language
-            if language == Language.HINDI:
-                # Generate questions directly in Hindi
-                chat = self.model.start_chat(history=[])
-                prompt = f"""आप एक कृषि विशेषज्ञ हैं जो किसानों के लिए फॉलो-अप प्रश्न तैयार कर रहे हैं।
+            # Generate in English first with a simple prompt
+            chat = self.model.start_chat(history=[])
+            prompt = f"""Based on this conversation with a farmer:
 
-                पिछली बातचीत:
-                किसान का प्रश्न: {question}
-                दिया गया उत्तर: {answer}
-                
-                {f'''किसान की जानकारी:
-                - नाम: {user_info.name}
-                - स्थान: {user_info.location}
-                - फसल: {user_info.crop_type}
-                - उत्पाद खरीदा: {'हां' if user_info.has_purchased else 'नहीं'}''' if user_info else ''}
+Question: {question}
+Answer: {answer}
 
-                4 प्रासंगिक फॉलो-अप प्रश्न तैयार करें जो:
-                1. पिछली बातचीत पर आधारित हों
-                2. व्यावहारिक कृषि संबंधी चिंताओं को संबोधित करें
-                3. विषय के विभिन्न पहलुओं को कवर करें
-                4. विशिष्ट और कार्रवाई योग्य हों
-                5. किसानों को उत्पाद को बेहतर ढंग से समझने में मदद करें
+Generate 4 simple, practical follow-up questions focusing on:
+1. Timing of application
+2. Results and effectiveness
+3. Safety concerns
+4. Additional recommendations
 
-                प्रारूप:
-                1. [पहला प्रश्न]
-                2. [दूसरा प्रश्न]
-                3. [तीसरा प्रश्न]
-                4. [चौथा प्रश्न]
-
-                प्रश्नों को स्पष्ट, संक्षिप्त और किसान-अनुकूल रखें।"""
-            else:
-                # English prompt (unchanged)
-                chat = self.model.start_chat(history=[])
-                prompt = f"""You are an agricultural expert generating follow-up questions for farmers.
-
-                Previous Conversation:
-                Farmer's Question: {question}
-                Given Answer: {answer}
-                
-                {f'''Farmer Context:
-                - Name: {user_info.name}
-                - Location: {user_info.location}
-                - Crop Type: {user_info.crop_type}
-                - Has Purchased: {'Yes' if user_info.has_purchased else 'No'}''' if user_info else ''}
-
-                Generate 4 relevant follow-up questions that:
-                1. Build on the previous conversation
-                2. Address practical farming concerns
-                3. Cover different aspects of the topic
-                4. Are specific and actionable
-                5. Help farmers understand the product better
-
-                Format:
-                1. [First Question]
-                2. [Second Question]
-                3. [Third Question]
-                4. [Fourth Question]
-
-                Keep questions clear, brief, crisp and farmer-friendly."""
+Format each question on a new line starting with a number and a dot."""
 
             response = chat.send_message(prompt).text
             
-            # Extract questions from response
+            # Extract questions - keep it simple
             questions = []
             for line in response.split('\n'):
                 line = line.strip()
-                if line and any(line.startswith(f"{i}.") or line.startswith(f"{i})") for i in range(1, 5)):
-                    question = line.split('.', 1)[-1].split(')', 1)[-1].strip()
-                    if question and self.is_valid_question(question):
-                        questions.append(self.sanitize_question(question))
+                if line and any(line.startswith(f"{i}. ") for i in range(1, 5)):
+                    question = line.split('. ', 1)[1].strip()
+                    if question:
+                        questions.append(question)
+            
+            # If we can't get enough good questions, use the defaults
+            if len(questions) != 4:
+                return self.default_questions[language]
+                
+            # If Hindi is requested, translate the questions
+            if language == Language.HINDI:
+                try:
+                    hindi_prompt = f"""Translate these farming-related questions to simple, natural Hindi:
 
-            # If we couldn't extract enough questions, add defaults
-            while len(questions) < 4:
-                questions.append(self.default_questions[language][len(questions)])
-
-            # Ensure we only have 4 questions
-            questions = questions[:4]
+{questions[0]}
+{questions[1]}
+{questions[2]}
+{questions[3]}"""
+                    
+                    hindi_response = chat.send_message(hindi_prompt).text
+                    hindi_questions = [q.strip() for q in hindi_response.split('\n') if q.strip()]
+                    
+                    if len(hindi_questions) == 4:
+                        return hindi_questions
+                    else:
+                        return self.default_questions[Language.HINDI]
+                except:
+                    return self.default_questions[Language.HINDI]
             
             return questions
             
         except Exception as e:
             logging.error(f"Error generating questions: {str(e)}")
-            # Return default questions in requested language
             return self.default_questions[language]
-    
-    def is_valid_question(self, question: str) -> bool:
-        """Validate if the generated question is meaningful"""
-        if not question:
-            return False
-        # Avoid very short questions
-        if len(question.split()) < 3:
-            return False
-        # Avoid questions that are just punctuation or special characters
-        if not any(c.isalnum() for c in question):
-            return False
-        return True
-    
-    def sanitize_question(self, question: str) -> str:
-        """Clean up the generated question"""
-        # Remove multiple spaces
-        question = ' '.join(question.split())
-        # Ensure proper capitalization for English questions only
-        if not any(u'\u0900' <= c <= u'\u097F' for c in question):  # Check if not Hindi
-            question = question[0].upper() + question[1:]
-        # Ensure question ends with question mark
-        if not question.endswith('?'):
-            question += '?'
-        return question
 
 
 class ImageProcessor:
