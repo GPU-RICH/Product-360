@@ -136,7 +136,6 @@ class SimpleTranslator:
         try:
             chat = self.model.start_chat(history=[])
             prompt = f"""Translate the following English text to Hindi. Use Devanagari script.
-            Keep technical terms in English with Hindi translation in brackets.
             Maintain the same formatting and structure.
             Make it natural and farmer-friendly.
             
@@ -218,7 +217,7 @@ class QuestionGenerator:
             3. [Third Question]
             4. [Fourth Question]
 
-            Keep questions clear and farmer-friendly."""
+            Keep questions clear, brief, crisp and farmer-friendly."""
             
             response = chat.send_message(prompt).text
             
@@ -300,6 +299,7 @@ class ImageProcessor:
             model_name="gemini-1.5-flash",
             generation_config=self.generation_config
         )
+        self.translator = SimpleTranslator(api_key)
     
     async def process_image_query(
         self,
@@ -311,49 +311,82 @@ class ImageProcessor:
         try:
             chat = self.model.start_chat(history=[])
             
-            language_instruction = (
-                "Respond in fluent Hindi, using Devanagari script." if language == Language.HINDI
-                else "Respond in English."
-            )
-            
+            # Always create prompt in English
             user_context = ""
             if user_info:
                 user_context = f"""
-                Consider this user context while analyzing the image:
-                - You are helping {user_info.name} from {user_info.location}
-                - They {'' if user_info.has_purchased else 'have not '}purchased product
-                - They are growing {user_info.crop_type}
+                Consider this context while analyzing the image:
+                - Farmer Name: {user_info.name}
+                - Location: {user_info.location}
+                - Current Crop: {user_info.crop_type}
+                - Product Purchased: {'Yes' if user_info.has_purchased else 'No'}
                 """
             
             # Upload image to Gemini
             image_part = {"mime_type": "image/jpeg", "data": image}
             
-            prompt = f"""You are an expert agricultural consultant specializing in crop health and product bio-fertilizer.
-            
-            {language_instruction}
+            prompt = f"""You are an expert agricultural consultant specializing in crop health.
             
             {user_context}
             
-            Analyze the image and address the user's query: {query}
+            Analyze the image and address this query: {query}
             
             Focus on:
-            1. Identifying any visible issues or concerns
-            2. Providing practical solutions and recommendations
-            3. Explaining how product might help (if relevant)
-            4. Suggesting preventive measures for the future
+            1. Identifying specific visible issues or concerns
+            2. Providing practical, actionable solutions
+            3. Explaining how the product can help (if relevant)
+            4. Suggesting preventive measures
+            5. Mentioning any immediate steps needed
             
-            Be specific and actionable in your response."""
+            Guidelines:
+            - Be specific and actionable
+            - Give concise, clear recommendations
+            - Use farmer-friendly language
+            - Prioritize practical advice
+            - Maintain a helpful, conversational tone
             
-            response = chat.send_message([image_part, prompt])
-            return response.text
+            Provide a brief, structured and easy-to-follow response. Always maintain a conversational tone."""
+            
+            # Get response in English
+            response = chat.send_message([image_part, prompt]).text
+            
+            # Translate to Hindi if needed
+            if language == Language.HINDI:
+                try:
+                    return await self.translator.to_hindi(response)
+                except Exception as e:
+                    logging.error(f"Translation error: {str(e)}")
+                    return "क्षमा करें, छवि का विश्लेषण करने में समस्या हुई। कृपया पुनः प्रयास करें।"
+            
+            return response
             
         except Exception as e:
             logging.error(f"Error processing image query: {str(e)}")
-            default_error = {
-                Language.ENGLISH: "I apologize, but I'm having trouble processing the image. Please try again.",
-                Language.HINDI: "क्षमा करें, मैं छवि को प्रोसेस करने में असमर्थ हूं। कृपया पुनः प्रयास करें।"
-            }
-            return default_error[language]
+            error_msg = "I apologize, but I'm having trouble analyzing the image. Please try again."
+            
+            if language == Language.HINDI:
+                try:
+                    return await self.translator.to_hindi(error_msg)
+                except:
+                    return "क्षमा करें, छवि का विश्लेषण करने में समस्या हुई। कृपया पुनः प्रयास करें।"
+            
+            return error_msg
+
+    async def validate_image(self, image: bytes) -> bool:
+        """Validate if the image is suitable for analysis"""
+        try:
+            img = Image.open(io.BytesIO(image))
+            # Check if image is not too small or too large
+            width, height = img.size
+            if width < 100 or height < 100:
+                return False
+            if width > 4096 or height > 4096:
+                return False
+            # Add more validation as needed
+            return True
+        except Exception as e:
+            logging.error(f"Image validation error: {str(e)}")
+            return False
 
 
 class GeminiRAG:
@@ -393,7 +426,7 @@ class GeminiRAG:
                 chat = self.model.start_chat(history=[])
                 
                 image_part = {"mime_type": "image/jpeg", "data": image}
-                prompt = f"""You are an expert agricultural consultant specializing in crop health and Entokill bio-fertilizer.
+                prompt = f"""You are an expert agricultural consultant specializing in crop health.
                 
                 Analyze the image and address this query: {question}
                 
@@ -409,10 +442,10 @@ class GeminiRAG:
                 Focus on:
                 1. Identifying visible issues or concerns
                 2. Providing practical solutions and recommendations
-                3. Explaining how Entokill might help (if relevant)
+                3. Explaining how product might help (if relevant)
                 4. Suggesting preventive measures
                 
-                Provide a detailed, actionable response."""
+                Provide a very brief, actionable response. Always try to keep the flow of a conversation."""
                 
                 response = chat.send_message([image_part, prompt]).text
                 
@@ -432,7 +465,7 @@ class GeminiRAG:
             # Get response in English first
             chat = self.model.start_chat(history=[])
             
-            prompt = f"""You are an agricultural expert specializing in Entokill bio-fertilizer and crop protection.
+            prompt = f"""You are an agricultural expert specializing in crop protection.
 
             Context Information:
             {context}
@@ -452,7 +485,7 @@ class GeminiRAG:
             4. Explain any technical terms
             5. Focus on solutions and best practices
             
-            Please provide a comprehensive response addressing the farmer's question."""
+            Provide a very brief, actionable response addressing the farmer's question. Always try to keep the flow of a conversation."""
             
             response = chat.send_message(prompt).text
             
