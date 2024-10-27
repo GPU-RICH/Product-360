@@ -192,7 +192,7 @@ config, logger, question_gen, rag, db, user_manager = initialize_components()
 # Load product database
 @st.cache_resource
 def load_database():
-    with open("STARTER.md", "r", encoding="utf-8") as f:
+    with open("ENTOKILL.md", "r", encoding="utf-8") as f:
         markdown_content = f.read()
     db.process_markdown(markdown_content)
 
