@@ -118,6 +118,73 @@ class ChatMemory:
     def clear_history(self):
         self.history = []
 
+class Translator:
+    """Handles translation between English and Hindi using Gemini"""
+    def __init__(self, api_key: str):
+        genai.configure(api_key=api_key)
+        self.generation_config = {
+            "temperature": 0.1,  # Low temperature for more accurate translations
+            "top_p": 0.95,
+            "top_k": 64,
+            "max_output_tokens": 8192,
+        }
+        self.model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",
+            generation_config=self.generation_config
+        )
+        
+    async def translate_to_hindi(self, text: str) -> str:
+        """Translates English text to Hindi"""
+        try:
+            chat = self.model.start_chat(history=[])
+            
+            # First, set translation context
+            system_prompt = """You are a professional translator specializing in English to Hindi translation.
+            Follow these rules strictly:
+            1. Translate the given text to fluent, natural Hindi
+            2. Use Devanagari script only
+            3. Keep technical terms in English but add Hindi translation in parentheses
+            4. Maintain the original formatting and structure
+            5. Ensure the translation is culturally appropriate for Indian farmers"""
+            
+            chat.send_message(system_prompt)
+            
+            # Send the text for translation
+            translation_prompt = f"""Translate the following English text to Hindi:
+
+            {text}
+            
+            Rules:
+            - Translate everything to Hindi using Devanagari script
+            - Keep agricultural/technical terms in both English and Hindi
+            - Maintain any formatting, lists, or structure from the original
+            - Make it sound natural and fluent in Hindi"""
+            
+            response = chat.send_message(translation_prompt)
+            translated_text = response.text
+            
+            # Verify the translation contains Devanagari
+            if not any(ord(c) >= 0x900 and ord(c) <= 0x97F for c in translated_text):
+                # If no Devanagari found, try one more time with stronger prompt
+                retry_prompt = """पिछला अनुवाद देवनागरी में नहीं था। कृपया इस टेक्स्ट का अनुवाद पूरी तरह से हिंदी में करें:
+
+                {text}
+                
+                अनुवाद बिल्कुल हिंदी में होना चाहिए और देवनागरी लिपि में होना चाहिए।"""
+                
+                response = chat.send_message(retry_prompt)
+                translated_text = response.text
+            
+            return translated_text
+            
+        except Exception as e:
+            logging.error(f"Translation error: {str(e)}")
+            return text  # Return original text if translation fails
+    
+    def is_hindi(self, text: str) -> bool:
+        """Checks if text contains Hindi characters"""
+        return any(ord(c) >= 0x900 and ord(c) <= 0x97F for c in text)
+        
 class QuestionGenerator:
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
@@ -188,7 +255,7 @@ class QuestionGenerator:
                 दिया गया उत्तर: {answer}
 
                 {language_instruction}
-                ALWAYS REPLY IN HINDI USING DEVNAGRI SCRIPT!!
+        
                 {user_context}
 
                 कृपया 4 संबंधित प्रश्न तैयार करें जो एक किसान पूछ सकता है।
@@ -200,7 +267,7 @@ class QuestionGenerator:
                 Given answer: {answer}
 
                 {language_instruction}
-                ALWAYS REPLY IN ENGLISH!!
+               
                 {user_context}
 
                 Generate 4 relevant follow-up questions a farmer might ask.
@@ -296,7 +363,7 @@ class ImageProcessor:
             prompt = f"""You are an expert agricultural consultant specializing in crop health and product bio-fertilizer.
             
             {language_instruction}
-            ALWAYS REPLY IN HINDI USING DEVNAGRI SCRIPT!!
+            
             {user_context}
             
             Analyze the image and address the user's query: {query}
@@ -324,7 +391,6 @@ class ImageProcessor:
 class GeminiRAG:
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
-        # Set default language settings for the model
         self.generation_config = {
             "temperature": 0.1,
             "top_p": 0.95,
@@ -336,6 +402,7 @@ class GeminiRAG:
             generation_config=self.generation_config
         )
         self.image_processor = ImageProcessor(api_key)
+        self.translator = Translator(api_key)
         
     async def get_answer(
         self, 
@@ -346,69 +413,43 @@ class GeminiRAG:
         image: Optional[bytes] = None
     ) -> str:
         if image:
-            return await self.image_processor.process_image_query(
+            response = await self.image_processor.process_image_query(
                 image,
                 question,
-                language,
+                Language.ENGLISH,  # Always get English response first
                 user_info
             )
+            if language == Language.HINDI:
+                return await self.translator.translate_to_hindi(response)
+            return response
         
         try:
-            # Create chat with proper language configuration
+            # Get response in English first
+            context_prompt = f"""
+            Context: {context}
+            
+            Farmer Info:
+            Name: {user_info.name if user_info else 'Unknown'}
+            Location: {user_info.location if user_info else 'Unknown'}
+            Crop: {user_info.crop_type if user_info else 'Unknown'}
+            
+            Farmer's Question: {question}
+            """
+            
             chat = self.model.start_chat(history=[])
+            response = chat.send_message(context_prompt).text
             
-            # Set content in the target language
+            # Translate to Hindi if needed
             if language == Language.HINDI:
-                content = {
-                    "role": "user",
-                    "parts": [
-                        {"text": """आपको हिंदी में उत्तर देने के लिए कॉन्फ़िगर किया जा रहा है। कृपया इस संदेश की पुष्टि करें।"""}
-                    ]
-                }
-                # Send initial configuration
-                response = await chat.send_message(content)
-                
-                # Prepare the main query in Hindi
-                context_prompt = f"""
-                संदर्भ जानकारी: {context}
-                
-                किसान की जानकारी:
-                नाम: {user_info.name if user_info else 'अज्ञात'}
-                स्थान: {user_info.location if user_info else 'अज्ञात'}
-                फसल: {user_info.crop_type if user_info else 'अज्ञात'}
-                
-                किसान का प्रश्न: {question}
-                ALWAYS REPLY IN HINDI USING DEVNAGRI SCRIPT!!
-                """
-            else:
-                # English query
-                context_prompt = f"""
-                Context: {context}
-                
-                Farmer Info:
-                Name: {user_info.name if user_info else 'Unknown'}
-                Location: {user_info.location if user_info else 'Unknown'}
-                Crop: {user_info.crop_type if user_info else 'Unknown'}
-                
-                Farmer's Question: {question}
-                ALWAYS REPLY IN ENGLISH!!
-                """
-
-            # Send the query with proper language configuration
-            response = await chat.send_message(
-                content={
-                    "role": "user",
-                    "parts": [{"text": context_prompt}],
-                    "language": language.value  # Use the language code
-                }
-            )
+                return await self.translator.translate_to_hindi(response)
             
-            return response.text
+            return response
             
         except Exception as e:
             logging.error(f"Error generating answer: {str(e)}")
-            return "क्षमा करें, तकनीकी समस्या। कृपया पुनः प्रयास करें।" if language == Language.HINDI else "Sorry, technical error. Please try again."
-
+            return ("क्षमा करें, तकनीकी समस्या। कृपया पुनः प्रयास करें।" 
+                    if language == Language.HINDI 
+                    else "Sorry, technical error. Please try again.")
 
 class CustomEmbeddings(Embeddings):
     """Custom embeddings using SentenceTransformer"""
