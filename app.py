@@ -84,7 +84,9 @@ UI_TEXT = {
 
 # Initialize session state
 def init_session_state():
-    """Initialize all session state variables"""
+    """Initialize all session state variables with default product"""
+    if 'initialized' not in st.session_state:
+        st.session_state.initialized = False
     if 'chat_memory' not in st.session_state:
         st.session_state.chat_memory = ChatMemory()
     if 'messages' not in st.session_state:
@@ -99,10 +101,7 @@ def init_session_state():
         st.session_state.show_suggestions = False
     if 'selected_product' not in st.session_state:
         st.session_state.selected_product = list(PRODUCT_CONFIG.keys())[0]
-    if 'db' not in st.session_state:
-        st.session_state.db = None
-    if 'config' not in st.session_state:
-        st.session_state.config = None
+
 
 # Configure the page
 st.set_page_config(
@@ -184,8 +183,6 @@ def initialize_components():
         question_gen = QuestionGenerator(config.gemini_api_key)
         rag = GeminiRAG(config.gemini_api_key)
         user_manager = UserManager(config.user_data_file)
-        # Store config in session state for later use
-        st.session_state.config = config
         return config, logger, question_gen, rag, user_manager
     except Exception as e:
         st.error(f"Error initializing components: {str(e)}")
@@ -193,18 +190,48 @@ def initialize_components():
 
 config, logger, question_gen, rag, user_manager = initialize_components()
 
-# Load product database
-def load_database(product_name: str):
+def load_initial_database():
+    """Load the default product database"""
+    if not st.session_state.initialized:
+        try:
+            config, logger, question_gen, rag, user_manager = initialize_components()
+            default_product = list(PRODUCT_CONFIG.keys())[0]
+            markdown_file = PRODUCT_CONFIG[default_product]['markdown_file']
+            
+            db = ProductDatabase(config)
+            with open(markdown_file, "r", encoding="utf-8") as f:
+                markdown_content = f.read()
+            db.process_markdown(markdown_content)
+            
+            st.session_state.db = db
+            st.session_state.config = config
+            st.session_state.logger = logger
+            st.session_state.question_gen = question_gen
+            st.session_state.rag = rag
+            st.session_state.user_manager = user_manager
+            st.session_state.initialized = True
+            
+        except Exception as e:
+            st.error(f"Error loading initial database: {str(e)}")
+            return None
+def load_new_database(product_name: str):
+    """Load a new product database when product selection changes"""
     try:
         markdown_file = PRODUCT_CONFIG[product_name]['markdown_file']
         db = ProductDatabase(st.session_state.config)
         with open(markdown_file, "r", encoding="utf-8") as f:
             markdown_content = f.read()
         db.process_markdown(markdown_content)
-        return db
+        st.session_state.db = db
     except Exception as e:
         st.error(f"डेटाबेस लोड करने में त्रुटि: {str(e)}")
-        return None
+
+def on_product_change():
+    """Handle product selection change"""
+    load_new_database(st.session_state.selected_product)
+    st.session_state.messages = []
+    st.session_state.chat_memory.clear_history()
+    st.session_state.message_counter = 0
 
 async def process_question(question: str, image: Optional[bytes] = None):
     try:
@@ -283,6 +310,7 @@ def render_user_form():
                 st.sidebar.warning(UI_TEXT["form_required"])
 
 def main():
+  
     init_session_state()
     
     # Initialize components
@@ -309,7 +337,7 @@ def main():
         UI_TEXT["product_select"],
         options=list(PRODUCT_CONFIG.keys()),
         key="selected_product",
-        on_change=lambda: setattr(st.session_state, 'db', load_database(st.session_state.selected_product))
+        on_change=on_product_change
     )
     
     # Add suggestions toggle at the top of sidebar
