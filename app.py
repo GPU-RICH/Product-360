@@ -20,11 +20,12 @@ UI_TEXT = {
     Language.ENGLISH: {
         "title": "🌱 Product Assistant",
         "welcome_message": """
-        👋 Welcome! You’ve scanned the QR code for Entokill 250 ml, an advanced insecticide solution for protecting various crops.
-
-        You can watch the product video here: https://www.youtube.com/watch?v=EY489XtDYEo
+        Welcome to the Product 360 Experience! 🌾
+        Hi there! It’s great to connect with you. You’re now part of a growing family of over 10,000 farmers who trust and use this product. We’re proud to support you on this journey.
+        You scanned the QR code for Entokill 250ml, you’ll find everything you need to know, along with stories from farmers just like you who have seen results with this product.
+        Take a moment to explore some testimonials from your fellow farmers https://www.youtube.com/watch?v=EY489XtDYEo and get ready to make the most out of Entokill 250ml!        
         
-        Choose a question below or ask your own!
+        Choose amongst the questions below or ask your own!
         """,
         "input_placeholder": "Type your question here...",
         "input_label": "Ask me anything about product:",
@@ -53,17 +54,12 @@ UI_TEXT = {
     Language.HINDI: {
         "title": "🌱 Entokill 250ml उत्पाद सहायक",
         "welcome_message": """
-        👋 नमस्ते! मैं आपका उत्पाद विशेषज्ञ हूं। मैं आपको इन विषयों में मदद कर सकता हूं:
-        - उत्पाद के लाभ और विशेषताएं
-        - प्रयोग विधि और समय
-        - खुराक की सिफारिशें
-        - फसल अनुकूलता
-        - तकनीकी विवरण
-        - फसल की छवियों और समस्याओं का विश्लेषण
+        Product 360 अनुभव में आपका स्वागत है! 🌾
+        नमस्ते! अब आप उन 10,000+ किसानों के परिवार का हिस्सा बन गए हैं जो इस उत्पाद का उपयोग करते हैं।
+        आपने Entokill 250ml का QR कोड स्कैन किया है—यहां आपको इस उत्पाद से जुड़ी सभी ज़रूरी जानकारी मिलेगी, साथ ही उन किसानों की कहानियाँ भी, जिन्होंने इस उत्पाद से बेहतरीन परिणाम हासिल किए हैं।
+        थोड़ा समय निकालकर अपने साथी किसानों के (product name) से जुड़े अनुभव देखें -> https://www.youtube.com/watch?v=EY489XtDYEo और Entokill 250ml का अधिकतम लाभ उठाने के लिए तैयार हो जाएं!
         
-        आप उत्पाद वीडियो यहां देख सकते हैं: https://www.youtube.com/watch?v=EY489XtDYEo
-        
-        नीचे दिए गए प्रश्नों में से चुनें या अपना प्रश्न पूछें!
+        नीचे दिए गए सवालों में से कोई चुनें या अपना खुद का सवाल पूछें
         """,
         "input_placeholder": "अपना प्रश्न यहां टाइप करें...",
         "input_label": "कुछ भी पूछें:",
