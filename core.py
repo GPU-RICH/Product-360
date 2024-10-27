@@ -144,7 +144,7 @@ class QuestionGenerator:
             chat = self.model.start_chat(history=[])
             
             language_instruction = (
-                "Return the questions in Hindi using Devanagari script." if language == Language.HINDI
+                "STRICTLY return the questions in HINDI using Devanagari script." if language == Language.HINDI
                 else "Return the questions in English."
             )
             
@@ -165,7 +165,7 @@ class QuestionGenerator:
             
             {user_context}
             
-            Generate 4 relevant follow-up questions that a customer might ask about product.
+            Generate 4 relevant follow-up questions that a farmer might ask about product.
             
             {language_instruction}
             Return ONLY the numbered questions (1-4), one per line.
