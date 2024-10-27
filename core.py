@@ -35,7 +35,7 @@ class ChatConfig:
     clip_model_name: str = 'openai/clip-vit-base-patch32'
     device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
     max_history: int = 3
-    gemini_api_key: str = "YOUR_API_KEY"  # Replace with your API key
+    gemini_api_key: str = "AIzaSyBS_DFCJh82voYIKoglS-ow6ezGNg775pg"  # Replace with your API key
     log_file: str = "chat_history.txt"
     user_data_file: str = "user_data.json"
     image_data_file: str = "image_data.json"
