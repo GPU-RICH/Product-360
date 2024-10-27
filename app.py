@@ -371,11 +371,14 @@ def main():
                 options=[Language.ENGLISH, Language.HINDI],
                 format_func=lambda x: "English" if x == Language.ENGLISH else "हिंदी",
                 key="language_selector",
-                index=0 if st.session_state.language == Language.ENGLISH else 1,
-                on_change=handle_language_change
+                index=1
             )
             st.session_state.language = selected_language
-
+    # Update session state language immediately when changed
+    if st.session_state.language != selected_language:
+        st.session_state.language = selected_language
+        handle_language_change()
+        
     # Add suggestions toggle at the top of sidebar
     current_text = UI_TEXT[st.session_state.language]
     st.sidebar.checkbox(
