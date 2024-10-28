@@ -310,6 +310,37 @@ def render_user_form():
             else:
                 st.sidebar.warning(UI_TEXT["form_required"])
 
+async def process_messages():
+    """Process submitted questions asynchronously"""
+    if st.session_state.submitted_question:
+        image_bytes = None
+        if "uploaded_file" in st.session_state:
+            uploaded_file = st.session_state.uploaded_file
+            if uploaded_file is not None:
+                try:
+                    image_bytes = uploaded_file.getvalue()
+                    content_type = uploaded_file.type
+                    if content_type not in ['image/jpeg', 'image/png']:
+                        st.error("कृपया केवल JPG या PNG छवियां अपलोड करें।")
+                        st.session_state.submitted_question = None
+                        return
+                except Exception as e:
+                    st.error(f"छवि लोड करने में समस्या: {str(e)}")
+                    image_bytes = None
+
+        with st.spinner(UI_TEXT["image_processing"] if image_bytes else ""):
+            try:
+                await process_question(
+                    st.session_state.submitted_question,
+                    image_bytes
+                )
+            except Exception as e:
+                st.error(f"प्रश्न प्रोसेस करने में त्रुटि: {str(e)}")
+
+        st.session_state.submitted_question = None
+        st.session_state.message_counter += 1
+        st.rerun()
+      
 def main():
     # Initialize session state
     init_session_state()
@@ -418,40 +449,8 @@ def main():
         
         # Process submitted question
         if st.session_state.submitted_question:
-            image_bytes = None
-            if uploaded_file is not None:
-                try:
-                    # Read image bytes
-                    image_bytes = uploaded_file.getvalue()
-                    
-                    # Validate format
-                    content_type = uploaded_file.type
-                    if content_type not in ['image/jpeg', 'image/png']:
-                        st.error("कृपया केवल JPG या PNG छवियां अपलोड करें।")
-                        st.session_state.submitted_question = None
-                        return
-                    
-                except Exception as e:
-                    st.error(f"छवि लोड करने में समस्या: {str(e)}")
-                    image_bytes = None
-            
-            with st.spinner(UI_TEXT["image_processing"] if image_bytes else ""):
-                try:
-                    response = await process_question(
-                        st.session_state.submitted_question,
-                        image_bytes
-                    )
-                    if "समस्या हुई" in response:
-                        st.error(response)
-                    else:
-                        # Continue with normal message processing...
-                        st.session_state.messages.append(...)
-                except Exception as e:
-                    st.error(f"प्रश्न प्रोसेस करने में त्रुटि: {str(e)}")
-            
-            st.session_state.submitted_question = None
-            st.session_state.message_counter += 1
-            st.rerun()
+            asyncio.run(process_messages())
+      
         
         # Chat controls
         cols = st.columns([4, 1])
