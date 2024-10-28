@@ -234,14 +234,24 @@ def on_product_change():
 async def process_question(question: str, image: Optional[bytes] = None):
     """Process a question and update the chat state"""
     try:
-        relevant_docs = st.session_state.db.search(question)
-        context = st.session_state.rag.create_context(relevant_docs)
-        answer = await st.session_state.rag.get_answer(
-            question, 
-            context,
-            st.session_state.user_info,
-            image
-        )
+        # If image is provided, use image processing
+        if image:
+            answer = await st.session_state.rag.get_answer(
+                question=question,
+                context="",  # No context needed for image analysis
+                user_info=st.session_state.user_info,
+                image=image
+            )
+        else:
+            # Normal text-based processing
+            relevant_docs = st.session_state.db.search(question)
+            context = st.session_state.rag.create_context(relevant_docs)
+            answer = await st.session_state.rag.get_answer(
+                question=question,
+                context=context,
+                user_info=st.session_state.user_info,
+                image=None
+            )
         
         follow_up_questions = await st.session_state.question_gen.generate_questions(
             question, 
@@ -258,6 +268,7 @@ async def process_question(question: str, image: Optional[bytes] = None):
         
         st.session_state.message_counter += 1
         
+        # Create message content
         message_content = {
             "text": question,
             "has_image": image is not None
@@ -268,14 +279,16 @@ async def process_question(question: str, image: Optional[bytes] = None):
             "content": message_content,
             "message_id": st.session_state.message_counter
         })
+        
         st.session_state.messages.append({
             "role": "assistant",
             "content": answer,
             "questions": follow_up_questions,
             "message_id": st.session_state.message_counter
         })
+        
     except Exception as e:
-        st.error(f"प्रश्न प्रोसेस करने में त्रुटि: {str(e)}")
+        st.error(f"Error processing question: {str(e)}")
 
 def render_user_form():
     """Render the user information form in the sidebar"""
@@ -386,31 +399,39 @@ def main():
                     ):
                         asyncio.run(process_question(question))
     
-    # Input area with image upload
+    # In the input area section
     with st.container():
-        # Add image upload
-        with st.expander(UI_TEXT["image_upload"], expanded=False):
-            uploaded_file = st.file_uploader(
-                "अपनी छवि यहाँ डालें",
-                type=['png', 'jpg', 'jpeg'],
-                help=UI_TEXT["image_helper"],
-                key="image_upload"
-            )
-            
-            if uploaded_file:
-                try:
-                    image = Image.open(uploaded_file)
-                    st.image(image, caption="अपलोड की गई छवि", use_column_width=True)
-                except Exception as e:
-                    st.error("छवि लोड करने में समस्या हुई। कृपया दूसरी छवि आज़माएं।")
+        # Image upload
+        uploaded_file = st.file_uploader(
+            UI_TEXT["image_upload"],
+            type=['png', 'jpg', 'jpeg'],
+            help=UI_TEXT["image_helper"]
+        )
+        
+        if uploaded_file:
+            try:
+                image = Image.open(uploaded_file)
+                st.image(image, caption="अपलोड की गई छवि", use_column_width=True)
+                image_bytes = uploaded_file.getvalue()
+            except Exception as e:
+                st.error("छवि लोड करने में समस्या हुई।")
+                image_bytes = None
+        else:
+            image_bytes = None
         
         # Text input
-        st.text_input(
+        question = st.text_input(
             UI_TEXT["input_label"],
             key="user_input",
-            placeholder=UI_TEXT["input_placeholder"],
-            on_change=handle_submit
+            placeholder=UI_TEXT["input_placeholder"]
         )
+        
+        if question:
+            asyncio.run(process_question(question, image_bytes))
+            st.session_state.user_input = ""
+            if uploaded_file:
+                st.session_state.uploaded_file = None
+            st.rerun()
         
         # Process submitted question
         if st.session_state.submitted_question:
