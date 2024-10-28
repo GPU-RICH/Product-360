@@ -287,12 +287,17 @@ class GeminiRAG:
             "top_k": 64,
             "max_output_tokens": 8192,
         }
-        self.model = genai.GenerativeModel(
-            model_name="gemini-pro",
+        
+        # Initialize models
+        self.text_model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",
             generation_config=self.generation_config
         )
-        self.image_processor = ImageProcessor(api_key)
-    
+        self.vision_model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",
+            generation_config=self.generation_config
+        )
+        
     async def get_answer(
         self, 
         question: str, 
@@ -301,41 +306,75 @@ class GeminiRAG:
         image: Optional[bytes] = None
     ) -> str:
         try:
-            # If image is provided, use image processor
+            # If image is provided, use vision model
             if image:
-                return await self.image_processor.process_image_query(
-                    image=image,
-                    query=question,
-                    user_info=user_info
-                )
-            
-            # Text-only query
-            chat = self.model.start_chat(history=[])
-            prompt = f"""You are an agricultural expert. Provide response in Hindi (Devanagari script).
+                # Convert bytes to PIL Image and ensure RGB mode
+                img = Image.open(io.BytesIO(image))
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                
+                # Prepare user context
+                user_context = ""
+                if user_info:
+                    user_context = f"""
+                    किसान की जानकारी:
+                    - नाम: {user_info.name}
+                    - स्थान: {user_info.location}
+                    - फसल: {user_info.crop_type}
+                    - उत्पाद खरीदा: {'हाँ' if user_info.has_purchased else 'नहीं'}
+                    """
+                
+                # Create prompt for image analysis
+                prompt = f"""आप एक कृषि विशेषज्ञ हैं। कृपया इस छवि का विश्लेषण करें और किसान की मदद करें।
+                
+                {user_context}
+                
+                संदर्भ जानकारी:
+                {context}
+                
+                किसान का प्रश्न: {question}
+                
+                कृपया इन बिंदुओं पर ध्यान दें:
+                1. छवि में दिखाई दे रही समस्या का विस्तृत विवरण
+                2. संभावित कारण
+                3. तत्काल समाधान
+                4. भविष्य में बचाव के उपाय
+                5. क्या उत्पाद इसमें मदद कर सकता है
+                
+                कृपया सरल हिंदी में जवाब दें जो एक किसान आसानी से समझ सके।"""
 
-            संदर्भ जानकारी:
-            {context}
+                # Create combined content parts
+                contents = [
+                    {
+                        "mime_type": "image/jpeg",
+                        "data": image
+                    },
+                    prompt
+                ]
+                
+                # Generate response using vision model
+                response = self.vision_model.generate_content(contents)
+                return response.text if response and response.text else "छवि का विश्लेषण करने में समस्या हुई।"
             
-            {f'''किसान की जानकारी:
-            - नाम: {user_info.name}
-            - स्थान: {user_info.location}
-            - फसल: {user_info.crop_type}
-            - उत्पाद खरीदा: {'हाँ' if user_info.has_purchased else 'नहीं'}''' if user_info else ''}
-            
-            प्रश्न: {question}
-            
-            निर्देश:
-            1. विशिष्ट और व्यावहारिक सलाह दें
-            2. सरल किसान-हितैषी भाषा का प्रयोग करें
-            3. जहाँ उपयुक्त हो उदाहरण दें
-            4. तकनीकी शब्दों को समझाएं
-            5. समाधान और सर्वोत्तम प्रथाओं पर ध्यान दें
-            
-            एक संक्षिप्त और व्यावहारिक उत्तर दें।"""
-            
-            response = chat.send_message(prompt)
-            return response.text
-            
+            # Text-only query uses text model
+            else:
+                chat = self.text_model.start_chat(history=[])
+                prompt = f"""You are an agricultural expert. Provide response in Hindi (Devanagari script).
+
+                संदर्भ जानकारी:
+                {context}
+                
+                {f'''किसान की जानकारी:
+                - नाम: {user_info.name}
+                - स्थान: {user_info.location}
+                - फसल: {user_info.crop_type}
+                - उत्पाद खरीदा: {'हाँ' if user_info.has_purchased else 'नहीं'}''' if user_info else ''}
+                
+                प्रश्न: {question}"""
+                
+                response = chat.send_message(prompt)
+                return response.text
+                
         except Exception as e:
             logging.error(f"Error in get_answer: {str(e)}", exc_info=True)
             return "क्षमा करें, तकनीकी त्रुटि हुई। कृपया पुनः प्रयास करें।"
