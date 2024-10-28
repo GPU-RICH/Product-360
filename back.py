@@ -178,8 +178,8 @@ class ImageProcessor:
             "top_p": 0.95,
             "top_k": 64,
             "max_output_tokens": 8192,
-            "response_mime_type": "text/plain",
         }
+        # Using gemini-pro-vision for image processing
         self.model = genai.GenerativeModel(
             model_name="gemini-1.5-flash",
             generation_config=self.generation_config
@@ -192,13 +192,16 @@ class ImageProcessor:
             
             # Check image format
             if img.format not in ['JPEG', 'PNG']:
+                logging.warning(f"Invalid image format: {img.format}")
                 return False
             
             # Check dimensions
             width, height = img.size
             if width < 100 or height < 100:
+                logging.warning(f"Image too small: {width}x{height}")
                 return False
             if width > 4096 or height > 4096:
+                logging.warning(f"Image too large: {width}x{height}")
                 return False
             
             return True
@@ -221,9 +224,17 @@ class ImageProcessor:
             if not await self.validate_image(image):
                 return "छवि का आकार या प्रारूप उपयुक्त नहीं है। कृपया 100x100 से 4096x4096 के बीच का आकार वाली JPG/PNG छवि अपलोड करें।"
             
-            # Create a temporary file to upload
-            temp_image = io.BytesIO(image)
-            uploaded_image = genai.upload_file(temp_image, mime_type="image/jpeg")
+            # Convert bytes to PIL Image
+            img = Image.open(io.BytesIO(image))
+            
+            # Ensure image is in RGB mode
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            # Convert back to bytes in memory
+            img_byte_arr = io.BytesIO()
+            img.save(img_byte_arr, format='JPEG')
+            img_byte_arr = img_byte_arr.getvalue()
             
             user_context = ""
             if user_info:
@@ -235,19 +246,9 @@ class ImageProcessor:
                 - उत्पाद खरीदा: {'हाँ' if user_info.has_purchased else 'नहीं'}
                 """
             
-            chat = self.model.start_chat(
-                history=[
-                    {
-                        "role": "user",
-                        "parts": [
-                            uploaded_image,
-                            f"I am facing this issue with my crop.\n{user_context}"
-                        ],
-                    }
-                ]
-            )
-            
             prompt = f"""कृपया इस छवि का विश्लेषण करें और किसान की मदद करें।
+            
+            {user_context}
             
             किसान का प्रश्न: {query}
             
@@ -260,18 +261,29 @@ class ImageProcessor:
             
             कृपया सरल हिंदी में जवाब दें जो एक किसान आसानी से समझ सके।"""
 
-            response = chat.send_message(prompt)
-            
+            # Prepare image for Gemini
+            image_parts = {
+                "mime_type": "image/jpeg",
+                "data": img_byte_arr
+            }
+
+            # Generate response using Gemini vision model
+            response = self.model.generate_content(
+                contents=[image_parts, prompt],
+            )
+
             if response and response.text:
                 return response.text
             else:
                 raise ValueError("No response received from Gemini")
             
         except genai.types.generation_types.BlockedPromptException:
+            logging.error("Blocked prompt exception")
             return "छवि में कुछ अनुपयुक्त सामग्री पाई गई। कृपया केवल फसल या खेती संबंधित छवियां अपलोड करें।"
         except Exception as e:
-            logging.error(f"Error processing image query: {str(e)}")
-            return f"छवि का विश्लेषण करने में समस्या हुई: {str(e)}। कृपया पुनः प्रयास करें।"
+            logging.error(f"Error processing image query: {str(e)}", exc_info=True)
+            return f"छवि का विश्लेषण करने में समस्या हुई। कृपया दूसरी छवि के साथ पुनः प्रयास करें।"
+
 
 
 class GeminiRAG:
@@ -284,18 +296,11 @@ class GeminiRAG:
             "max_output_tokens": 8192,
         }
         self.model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
+            model_name="gemini-pro",
             generation_config=self.generation_config
         )
         self.image_processor = ImageProcessor(api_key)
     
-    def create_context(self, relevant_docs: List[Dict[str, Any]]) -> str:
-        """Creates a context string from relevant documents"""
-        context_parts = []
-        for doc in relevant_docs:
-            context_parts.append(f"Section: {doc['metadata']['section']}\n{doc['content']}")
-        return "\n\n".join(context_parts)
-
     async def get_answer(
         self, 
         question: str, 
@@ -304,11 +309,16 @@ class GeminiRAG:
         image: Optional[bytes] = None
     ) -> str:
         try:
+            # If image is provided, use image processor
             if image:
-                return await self.image_processor.process_image_query(image, question, user_info)
+                return await self.image_processor.process_image_query(
+                    image=image,
+                    query=question,
+                    user_info=user_info
+                )
             
+            # Text-only query
             chat = self.model.start_chat(history=[])
-            
             prompt = f"""You are an agricultural expert. Provide response in Hindi (Devanagari script).
 
             संदर्भ जानकारी:
@@ -331,11 +341,11 @@ class GeminiRAG:
             
             एक संक्षिप्त और व्यावहारिक उत्तर दें।"""
             
-            response = chat.send_message(prompt).text
-            return response
+            response = chat.send_message(prompt)
+            return response.text
             
         except Exception as e:
-            logging.error(f"Error generating answer: {str(e)}")
+            logging.error(f"Error in get_answer: {str(e)}", exc_info=True)
             return "क्षमा करें, तकनीकी त्रुटि हुई। कृपया पुनः प्रयास करें।"
 
 class CustomEmbeddings(Embeddings):
