@@ -11,6 +11,7 @@ PRODUCT_CONFIG = {
     "GAPL STARTER 1KG": {
         "markdown_file": "STARTER.md",
         "title": "🌱 GAPL STARTER 1KG उत्पाद सहायक",
+        "video_url": "https://www.youtube.com/embed/9kHyeQ9B7TQ",
         "suggestions": [
             {"image": "INNO_AG.webp", "name": "INNO AG Stimgo MGR 1 Kg"},
             {"image": "IFFCO.webp", "name": "IFFCO Sagarika Bucket 10 Kg"},
@@ -20,6 +21,7 @@ PRODUCT_CONFIG = {
     "ENTOKILL 250ML": {
         "markdown_file": "ENTOKILL.md",
         "title": "🌱 Entokill 250ml उत्पाद सहायक",
+        "video_url": "https://www.youtube.com/embed/EY489XtDYEo",
         "suggestions": [
             {"image": "paras-npk.webp", "name": "PARAS NPK 12:32:16 50 Kg"},
             {"image": "mosaic.webp", "name": "MOSAIC MOP 50 Kg"},
@@ -29,6 +31,7 @@ PRODUCT_CONFIG = {
     "DEHAAT KHURAK 3000": {
         "markdown_file": "KHURAK.md",
         "title": "🌱 DeHaat Khurak 3000 उत्पाद सहायक",
+        "video_url": "https://www.youtube.com/embed/Q55lYWMu40o",
         "suggestions": [
             {"image": "doodh_plus.webp", "name": "Doodh Plus 5 Kg"},
             {"image": "balance.webp", "name": "DEHAAT BALANCE DIET 25 KG"},
@@ -38,6 +41,7 @@ PRODUCT_CONFIG = {
     "DOODH PLUS": {
         "markdown_file": "doodhplus.md",
         "title": "🌱 Doodh Plus उत्पाद सहायक",
+        "video_url": "https://www.youtube.com/embed/3_Geihsy1KM",
         "suggestions": [
             {"image": "doodh_khurak.webp", "name": "DeHaat Khurak 5000 45 Kg"},
             {"image": "vetnocal.webp", "name": "Vetnocal Gold 5 L"},
@@ -81,6 +85,12 @@ UI_TEXT = {
         "अनुशंसित मात्रा क्या है?"
     ]
 }
+
+UI_TEXT.update({
+    "video_title": "उत्पाद डेमो वीडियो",
+    "video_loading": "वीडियो लोड हो रहा है...",
+    "video_error": "वीडियो लोड करने में समस्या हुई। कृपया पुनः प्रयास करें।"
+})
 
 # Initialize session state
 def init_session_state():
@@ -155,6 +165,22 @@ st.markdown("""
     margin: 20px 0;
     background-color: #f5f5f5;
     border-radius: 10px;
+}
+.video-container {
+    position: relative;
+    padding-bottom: 56.25%;
+    margin: 20px 0;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+.video-container iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: none;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -352,7 +378,24 @@ def main():
     # Display product-specific title
     product_config = PRODUCT_CONFIG[st.session_state.selected_product]
     st.title(product_config['title'])
-    
+
+    # Add video section after title
+    # Add video section after title
+    if "video_url" in product_config:
+        st.subheader(UI_TEXT["video_title"])
+        with st.container():
+            video_html = f"""
+                <div class='video-container'>
+                    <iframe
+                        src='{product_config['video_url']}'
+                        frameborder='0'
+                        allow='accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture'
+                        allowfullscreen>
+                    </iframe>
+                </div>
+                """
+            st.markdown(video_html, unsafe_allow_html=True)
+            
     # Welcome message
     if not st.session_state.messages:
         st.markdown(UI_TEXT["welcome_message"].format(product=st.session_state.selected_product))
