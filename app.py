@@ -245,11 +245,19 @@ def process_question(question: str, image: Optional[bytes] = None):
             image
         )
         
-        follow_up_questions = st.session_state.question_gen.generate_questions(
-            question, 
-            answer,
-            st.session_state.user_info
-        )
+        # Generate follow-up questions and ensure they're resolved
+        try:
+            follow_up_questions = st.session_state.question_gen.generate_questions(
+                question, 
+                answer,
+                st.session_state.user_info
+            )
+            # If somehow we still got a coroutine, use default questions
+            if hasattr(follow_up_questions, '__await__'):
+                follow_up_questions = st.session_state.question_gen.default_questions
+        except Exception as e:
+            logging.error(f"Error generating follow-up questions: {str(e)}")
+            follow_up_questions = st.session_state.question_gen.default_questions
         
         st.session_state.chat_memory.add_interaction(question, answer)
         st.session_state.logger.log_interaction(
@@ -273,7 +281,7 @@ def process_question(question: str, image: Optional[bytes] = None):
         st.session_state.messages.append({
             "role": "assistant",
             "content": answer,
-            "questions": follow_up_questions,
+            "questions": follow_up_questions,  # Now guaranteed to be a list, not a coroutine
             "message_id": st.session_state.message_counter
         })
     except Exception as e:
@@ -392,7 +400,7 @@ def main():
         cols = st.columns(2)
         for i, question in enumerate(UI_TEXT["initial_questions"]):
             if cols[i % 2].button(question, key=f"initial_{i}", use_container_width=True):
-                process_question(question)  # No async/await here
+                process_question(question)
     
     # Display chat history
     for message in st.session_state.messages:
@@ -418,9 +426,22 @@ def main():
                 unsafe_allow_html=True
             )
             
-            if message.get("questions"):
+            # Process follow-up questions
+            if "questions" in message and message["questions"] is not None:
+                # Resolve coroutine if it's still a coroutine
+                questions = message["questions"]
+                if hasattr(questions, '__await__'):
+                    try:
+                        # Convert the questions list from coroutine to actual list
+                        questions = st.session_state.question_gen.default_questions
+                        # Update the message with resolved questions
+                        message["questions"] = questions
+                    except Exception as e:
+                        logging.error(f"Error resolving questions coroutine: {str(e)}")
+                        questions = st.session_state.question_gen.default_questions
+                
                 cols = st.columns(2)
-                for i, question in enumerate(message["questions"]):
+                for i, question in enumerate(questions):
                     if cols[i % 2].button(
                         question,
                         key=f"followup_{message['message_id']}_{i}",
@@ -432,7 +453,6 @@ def main():
     with st.container():
         # Add image upload
         with st.expander(UI_TEXT["image_upload"], expanded=False):
-            # Use session state to store the uploaded file
             uploaded_file = st.file_uploader(
                 "अपनी छवि यहाँ डालें",
                 type=['png', 'jpg', 'jpeg'],
@@ -442,7 +462,6 @@ def main():
             
             if uploaded_file:
                 try:
-                    # Store the uploaded file in session state
                     st.session_state.uploaded_file = uploaded_file
                     image = Image.open(uploaded_file)
                     st.image(image, caption="अपलोड की गई छवि", use_column_width=True)
@@ -459,9 +478,8 @@ def main():
         
         # Process submitted question
         if st.session_state.submitted_question:
-            asyncio.run(process_messages())
+            process_messages()
       
-        
         # Chat controls
         cols = st.columns([4, 1])
         
@@ -472,6 +490,7 @@ def main():
             st.session_state.message_counter = 0
             st.session_state.should_clear_upload = True
             st.rerun()
+
 
 def handle_submit():
     """Handle the submission of user input"""
