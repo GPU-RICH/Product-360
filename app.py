@@ -85,22 +85,21 @@ UI_TEXT = {
 # Initialize session state
 def init_session_state():
     """Initialize all session state variables"""
-    if 'initialized' not in st.session_state:
-        st.session_state.initialized = False
-    if 'chat_memory' not in st.session_state:
-        st.session_state.chat_memory = ChatMemory()
-    if 'messages' not in st.session_state:
-        st.session_state.messages = []
-    if 'message_counter' not in st.session_state:
-        st.session_state.message_counter = 0
-    if 'last_question' not in st.session_state:
-        st.session_state.last_question = ""
-    if 'user_info' not in st.session_state:
-        st.session_state.user_info = None
-    if 'show_suggestions' not in st.session_state:
-        st.session_state.show_suggestions = False
-    if 'selected_product' not in st.session_state:
-        st.session_state.selected_product = list(PRODUCT_CONFIG.keys())[0]
+    defaults = {
+        'initialized': False,
+        'chat_memory': ChatMemory(),
+        'messages': [],
+        'message_counter': 0,
+        'processed_questions': set(),
+        'need_rerun': False,
+        'user_info': None,
+        'show_suggestions': False,
+        'selected_product': list(PRODUCT_CONFIG.keys())[0]
+    }
+    
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
       
 # Configure the page
 st.set_page_config(
@@ -398,7 +397,7 @@ def main():
                     ):
                         asyncio.run(process_question(question))
     
-    # Input area with image upload
+    # Input area with image upload and form
     with st.container():
         # Add image upload
         uploaded_file = st.file_uploader(
@@ -415,20 +414,17 @@ def main():
             except Exception as e:
                 st.error("छवि लोड करने में समस्या हुई। कृपया दूसरी छवि आज़माएं।")
         
-        # Text input with submit button
-        col1, col2 = st.columns([4, 1])
-        with col1:
+        # Create a form for input
+        with st.form(key='input_form'):
             question = st.text_input(
                 UI_TEXT["input_label"],
                 key="user_input",
                 placeholder=UI_TEXT["input_placeholder"]
             )
-        with col2:
-            submit = st.button("भेजें")
-        
+            submit = st.form_submit_button("भेजें")
         
         # Process input when submitted
-        if submit or (question and question != st.session_state.get("last_question", "")):
+        if submit and question:
             image_bytes = None
             if uploaded_file:
                 try:
@@ -436,25 +432,34 @@ def main():
                 except Exception as e:
                     st.error("छवि प्रोसेस करने में समस्या हुई।")
             
-            if question:
-                with st.spinner("प्रोसेस कर रहे हैं..."):
-                    asyncio.run(process_question(question, image_bytes))
-                    st.session_state.last_question = question
-                    st.session_state.user_input = ""
-                    st.session_state.image_upload = None
-                st.rerun()
+            with st.spinner("प्रोसेस कर रहे हैं..."):
+                asyncio.run(process_question(question, image_bytes))
+                # Store the processed question in session state
+                if 'processed_questions' not in st.session_state:
+                    st.session_state.processed_questions = set()
+                st.session_state.processed_questions.add(question)
             
+            # Clear the form using a rerun flag
+            if 'need_rerun' not in st.session_state:
+                st.session_state.need_rerun = True
+                st.rerun()
         
-        # Chat controls
+        # Handle rerun cleanup
+        if 'need_rerun' in st.session_state and st.session_state.need_rerun:
+            st.session_state.need_rerun = False
+            st.session_state.user_input = ""
+            if 'image_upload' in st.session_state:
+                st.session_state.image_upload = None
+        
+        # Clear chat controls
         cols = st.columns([4, 1])
-        
-        # Clear chat button
-        if st.button(UI_TEXT["clear_chat"]):
+        if cols[1].button(UI_TEXT["clear_chat"], use_container_width=True):
             st.session_state.messages = []
             st.session_state.chat_memory.clear_history()
             st.session_state.message_counter = 0
             st.session_state.image_upload = None
-            st.session_state.last_question = ""
+            if 'processed_questions' in st.session_state:
+                st.session_state.processed_questions = set()
             st.session_state.user_input = ""
             st.rerun()
 
