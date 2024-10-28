@@ -436,23 +436,18 @@ def main():
         cols = st.columns([4, 1])
         
         # Clear chat button
-    if cols[1].button(UI_TEXT["clear_chat"], use_container_width=True):
-        st.session_state.messages = []
-        st.session_state.chat_memory.clear_history()
-        st.session_state.message_counter = 0
-        # Safely remove the image upload key if it exists
-        if "image_upload" in st.session_state:
-            del st.session_state["image_upload"]
-        st.rerun()
+        if cols[1].button(UI_TEXT["clear_chat"], use_container_width=True):
+            st.session_state.messages = []
+            st.session_state.chat_memory.clear_history()
+            st.session_state.message_counter = 0
+            st.session_state.image_upload = None
+            st.rerun()
 
 def handle_submit():
     """Handle the submission of user input"""
     if st.session_state.user_input:
         st.session_state.submitted_question = st.session_state.user_input
         st.session_state.user_input = ""
-        # Don't try to clear the image upload field directly
-        if "image_upload" in st.session_state:
-            del st.session_state["image_upload"]
 
 def handle_error(error: Exception):
     """Handle errors gracefully"""
