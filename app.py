@@ -4,6 +4,8 @@ import asyncio
 from PIL import Image
 import io
 import base64
+import logging
+from functools import partial
 from back import (ChatConfig, ChatLogger, ChatMemory, QuestionGenerator, 
                  GeminiRAG, ProductDatabase, UserManager, UserInfo)
 
@@ -104,6 +106,8 @@ def init_session_state():
         st.session_state.selected_product = list(PRODUCT_CONFIG.keys())[0]
     if 'should_clear_upload' not in st.session_state:
         st.session_state.should_clear_upload = False
+    if 'loading' not in st.session_state:
+        st.session_state.loading = False
 
 # Configure the page
 st.set_page_config(
@@ -160,10 +164,17 @@ st.markdown("""
     background-color: #f5f5f5;
     border-radius: 10px;
 }
+.loading-spinner {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 20px 0;
+}
 </style>
 """, unsafe_allow_html=True)
 
-def display_product_suggestions():
+async def display_product_suggestions():
+    """Display product suggestions in sidebar"""
     if st.session_state.show_suggestions:
         st.sidebar.markdown("---")
         st.sidebar.markdown(f"### {UI_TEXT['suggestions_title']}")
@@ -174,7 +185,7 @@ def display_product_suggestions():
                 st.image(suggestion['image'], caption=suggestion['name'], use_column_width=True)
                 st.markdown(f"**{suggestion['name']}**")
                 st.markdown("---")
-                    
+
 # Initialize components
 @st.cache_resource
 def initialize_components():
@@ -190,8 +201,8 @@ def initialize_components():
         st.error(f"Error initializing components: {str(e)}")
         raise e
 
-def load_initial_database():
-    """Load the default product database"""
+async def load_initial_database():
+    """Load the default product database asynchronously"""
     if not st.session_state.initialized:
         try:
             config, logger, question_gen, rag, user_manager = initialize_components()
@@ -201,7 +212,7 @@ def load_initial_database():
             db = ProductDatabase(config)
             with open(markdown_file, "r", encoding="utf-8") as f:
                 markdown_content = f.read()
-            db.process_markdown(markdown_content)
+            await db.process_markdown(markdown_content)
             
             st.session_state.db = db
             st.session_state.config = config
@@ -214,53 +225,48 @@ def load_initial_database():
         except Exception as e:
             st.error(f"Error loading initial database: {str(e)}")
             return None
-def load_new_database(product_name: str):
+
+async def load_new_database(product_name: str):
     """Load a new product database when product selection changes"""
     try:
         markdown_file = PRODUCT_CONFIG[product_name]['markdown_file']
         db = ProductDatabase(st.session_state.config)
         with open(markdown_file, "r", encoding="utf-8") as f:
             markdown_content = f.read()
-        db.process_markdown(markdown_content)
+        await db.process_markdown(markdown_content)
         st.session_state.db = db
     except Exception as e:
         st.error(f"डेटाबेस लोड करने में त्रुटि: {str(e)}")
 
-def on_product_change():
-    """Handle product selection change"""
-    load_new_database(st.session_state.selected_product)
+async def on_product_change():
+    """Handle product selection change asynchronously"""
+    await load_new_database(st.session_state.selected_product)
     st.session_state.messages = []
-    st.session_state.chat_memory.clear_history()
+    await st.session_state.chat_memory.clear_history()
     st.session_state.message_counter = 0
 
-def process_question(question: str, image: Optional[bytes] = None):
-    """Process a question and update the chat state"""
+async def process_question(question: str, image: Optional[bytes] = None):
+    """Process a question and update the chat state asynchronously"""
     try:
-        relevant_docs = st.session_state.db.search(question)
+        st.session_state.loading = True
+        relevant_docs = await st.session_state.db.search(question)
         context = st.session_state.rag.create_context(relevant_docs)
-        answer = st.session_state.rag.get_answer(
+        answer = await st.session_state.rag.get_answer(
             question, 
             context,
             st.session_state.user_info,
             image
         )
         
-        # Generate follow-up questions and ensure they're resolved
-        try:
-            follow_up_questions = st.session_state.question_gen.generate_questions(
-                question, 
-                answer,
-                st.session_state.user_info
-            )
-            # If somehow we still got a coroutine, use default questions
-            if hasattr(follow_up_questions, '__await__'):
-                follow_up_questions = st.session_state.question_gen.default_questions
-        except Exception as e:
-            logging.error(f"Error generating follow-up questions: {str(e)}")
-            follow_up_questions = st.session_state.question_gen.default_questions
+        # Generate follow-up questions
+        follow_up_questions = await st.session_state.question_gen.generate_questions(
+            question, 
+            answer,
+            st.session_state.user_info
+        )
         
-        st.session_state.chat_memory.add_interaction(question, answer)
-        st.session_state.logger.log_interaction(
+        await st.session_state.chat_memory.add_interaction(question, answer)
+        await st.session_state.logger.log_interaction(
             question, 
             answer,
             st.session_state.user_info
@@ -281,13 +287,17 @@ def process_question(question: str, image: Optional[bytes] = None):
         st.session_state.messages.append({
             "role": "assistant",
             "content": answer,
-            "questions": follow_up_questions,  # Now guaranteed to be a list, not a coroutine
+            "questions": follow_up_questions,
             "message_id": st.session_state.message_counter
         })
+        
+        st.session_state.loading = False
+        
     except Exception as e:
         st.error(f"प्रश्न प्रोसेस करने में त्रुटि: {str(e)}")
+        st.session_state.loading = False
 
-def render_user_form():
+async def render_user_form():
     """Render the user information form in the sidebar"""
     st.sidebar.title(UI_TEXT["sidebar_title"])
     
@@ -310,7 +320,8 @@ def render_user_form():
                     crop_type=crop_type
                 )
                 
-                if user_manager.save_user_info(user_info):
+                success = await st.session_state.user_manager.save_user_info(user_info)
+                if success:
                     st.session_state.user_info = user_info
                     st.sidebar.success(UI_TEXT["form_success"])
                 else:
@@ -318,8 +329,8 @@ def render_user_form():
             else:
                 st.sidebar.warning(UI_TEXT["form_required"])
 
-def process_messages():
-    """Process submitted questions"""
+async def process_messages():
+    """Process submitted questions asynchronously"""
     if st.session_state.submitted_question:
         image_bytes = None
         if "uploaded_file" in st.session_state:
@@ -342,7 +353,7 @@ def process_messages():
 
         with st.spinner(UI_TEXT["image_processing"] if image_bytes else ""):
             try:
-                process_question(
+                await process_question(
                     st.session_state.submitted_question,
                     image_bytes
                 )
@@ -357,21 +368,29 @@ def process_messages():
         st.session_state.submitted_question = None
         st.session_state.message_counter += 1
         st.rerun()
-      
-def main():
+
+def handle_submit():
+    """Handle the submission of user input"""
+    if st.session_state.user_input:
+        st.session_state.submitted_question = st.session_state.user_input
+        st.session_state.user_input = ""
+        st.session_state.should_clear_upload = True
+
+async def main():
+    """Main application function with async support"""
     # Initialize session state
     init_session_state()
     
     # Load initial database and components if not already initialized
     if not st.session_state.initialized:
-        load_initial_database()
+        await load_initial_database()
     
     # Product selection in sidebar
     st.sidebar.selectbox(
         UI_TEXT["product_select"],
         options=list(PRODUCT_CONFIG.keys()),
         key="selected_product",
-        on_change=on_product_change
+        on_change=lambda: asyncio.create_task(on_product_change())
     )
     
     # Add suggestions toggle at the top of sidebar
@@ -382,11 +401,11 @@ def main():
     )
 
     # Render user form in sidebar
-    render_user_form()
+    await render_user_form()
     
     # Display product suggestions in sidebar if enabled
     if st.session_state.show_suggestions:
-        display_product_suggestions()
+        await display_product_suggestions()
 
     # Display product-specific title
     product_config = PRODUCT_CONFIG[st.session_state.selected_product]
@@ -400,7 +419,7 @@ def main():
         cols = st.columns(2)
         for i, question in enumerate(UI_TEXT["initial_questions"]):
             if cols[i % 2].button(question, key=f"initial_{i}", use_container_width=True):
-                process_question(question)
+                asyncio.create_task(process_question(question))
     
     # Display chat history
     for message in st.session_state.messages:
@@ -426,28 +445,24 @@ def main():
                 unsafe_allow_html=True
             )
             
-            # Process follow-up questions
-            if "questions" in message and message["questions"] is not None:
-                # Resolve coroutine if it's still a coroutine
-                questions = message["questions"]
-                if hasattr(questions, '__await__'):
-                    try:
-                        # Convert the questions list from coroutine to actual list
-                        questions = st.session_state.question_gen.default_questions
-                        # Update the message with resolved questions
-                        message["questions"] = questions
-                    except Exception as e:
-                        logging.error(f"Error resolving questions coroutine: {str(e)}")
-                        questions = st.session_state.question_gen.default_questions
-                
+            # Display follow-up questions
+            if "questions" in message and message["questions"]:
                 cols = st.columns(2)
-                for i, question in enumerate(questions):
+                for i, question in enumerate(message["questions"]):
                     if cols[i % 2].button(
                         question,
                         key=f"followup_{message['message_id']}_{i}",
                         use_container_width=True
                     ):
-                        process_question(question)
+                        asyncio.create_task(process_question(question))
+    
+    # Display loading spinner
+    if st.session_state.loading:
+        with st.container():
+            st.markdown(
+                '<div class="loading-spinner">⌛ प्रोसेसिंग...</div>',
+                unsafe_allow_html=True
+            )
     
     # Input area with image upload
     with st.container():
@@ -478,7 +493,7 @@ def main():
         
         # Process submitted question
         if st.session_state.submitted_question:
-            process_messages()
+            asyncio.create_task(process_messages())
       
         # Chat controls
         cols = st.columns([4, 1])
@@ -486,20 +501,12 @@ def main():
         # Clear chat button
         if cols[1].button(UI_TEXT["clear_chat"], use_container_width=True):
             st.session_state.messages = []
-            st.session_state.chat_memory.clear_history()
+            asyncio.create_task(st.session_state.chat_memory.clear_history())
             st.session_state.message_counter = 0
             st.session_state.should_clear_upload = True
             st.rerun()
 
-
-def handle_submit():
-    """Handle the submission of user input"""
-    if st.session_state.user_input:
-        st.session_state.submitted_question = st.session_state.user_input
-        st.session_state.user_input = ""
-        st.session_state.should_clear_upload = True
-
-def handle_error(error: Exception):
+async def handle_error(error: Exception):
     """Handle errors gracefully"""
     error_messages = {
         "generic": "एक त्रुटि हुई। कृपया पुनः प्रयास करें।",
@@ -521,4 +528,8 @@ def handle_error(error: Exception):
     logging.error(f"Error in app: {str(error)}")
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        st.error(f"Application error: {str(e)}")
+        logging.error(f"Application error: {str(e)}", exc_info=True)
