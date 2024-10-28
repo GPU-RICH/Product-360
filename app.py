@@ -103,6 +103,10 @@ def init_session_state():
         st.session_state.selected_product = list(PRODUCT_CONFIG.keys())[0]
     if 'should_clear_upload' not in st.session_state:
         st.session_state.should_clear_upload = False
+    if 'uploaded_file' not in st.session_state:
+        st.session_state.uploaded_file = None
+    if 'current_image' not in st.session_state:
+        st.session_state.current_image = None
 
 
 # Configure the page
@@ -324,6 +328,10 @@ async def process_messages():
                         st.error("कृपया केवल JPG या PNG छवियां अपलोड करें।")
                         st.session_state.submitted_question = None
                         return
+                    
+                    # Store the uploaded file in session state
+                    st.session_state.current_image = image_bytes
+                    
                 except Exception as e:
                     st.error(f"छवि लोड करने में समस्या: {str(e)}")
                     image_bytes = None
@@ -337,6 +345,11 @@ async def process_messages():
             except Exception as e:
                 st.error(f"प्रश्न प्रोसेस करने में त्रुटि: {str(e)}")
 
+        # Clear the uploaded file after processing
+        if st.session_state.should_clear_upload:
+            st.session_state.uploaded_file = None
+            st.session_state.should_clear_upload = False
+            
         st.session_state.submitted_question = None
         st.session_state.message_counter += 1
         st.rerun()
@@ -423,17 +436,18 @@ def main():
     with st.container():
         # Add image upload
         with st.expander(UI_TEXT["image_upload"], expanded=False):
-            # Use a unique key for the file uploader
-            upload_key = f"image_upload_{st.session_state.message_counter}"
+            # Use session state to store the uploaded file
             uploaded_file = st.file_uploader(
                 "अपनी छवि यहाँ डालें",
                 type=['png', 'jpg', 'jpeg'],
                 help=UI_TEXT["image_helper"],
-                key=upload_key
+                key=f"image_upload_{st.session_state.message_counter}"
             )
             
             if uploaded_file:
                 try:
+                    # Store the uploaded file in session state
+                    st.session_state.uploaded_file = uploaded_file
                     image = Image.open(uploaded_file)
                     st.image(image, caption="अपलोड की गई छवि", use_column_width=True)
                 except Exception as e:
