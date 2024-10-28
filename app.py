@@ -101,6 +101,8 @@ def init_session_state():
         st.session_state.show_suggestions = False
     if 'selected_product' not in st.session_state:
         st.session_state.selected_product = list(PRODUCT_CONFIG.keys())[0]
+    if 'should_clear_upload' not in st.session_state:
+        st.session_state.should_clear_upload = False
 
 
 # Configure the page
@@ -390,11 +392,13 @@ def main():
     with st.container():
         # Add image upload
         with st.expander(UI_TEXT["image_upload"], expanded=False):
+            # Use a unique key for the file uploader
+            upload_key = f"image_upload_{st.session_state.message_counter}"
             uploaded_file = st.file_uploader(
                 "अपनी छवि यहाँ डालें",
                 type=['png', 'jpg', 'jpeg'],
                 help=UI_TEXT["image_helper"],
-                key="image_upload"
+                key=upload_key
             )
             
             if uploaded_file:
@@ -428,31 +432,27 @@ def main():
                 ))
             
             st.session_state.submitted_question = None
-            # Clear the image uploader
-            st.session_state.image_upload = None
+            st.session_state.message_counter += 1
+            st.session_state.should_clear_upload = True
             st.rerun()
         
         # Chat controls
         cols = st.columns([4, 1])
         
         # Clear chat button
-    if cols[1].button(UI_TEXT["clear_chat"], use_container_width=True):
-        st.session_state.messages = []
-        st.session_state.chat_memory.clear_history()
-        st.session_state.message_counter = 0
-        # Safely remove the image upload key if it exists
-        if "image_upload" in st.session_state:
-            del st.session_state["image_upload"]
-        st.rerun()
+        if cols[1].button(UI_TEXT["clear_chat"], use_container_width=True):
+            st.session_state.messages = []
+            st.session_state.chat_memory.clear_history()
+            st.session_state.message_counter = 0
+            st.session_state.should_clear_upload = True
+            st.rerun()
 
 def handle_submit():
     """Handle the submission of user input"""
     if st.session_state.user_input:
         st.session_state.submitted_question = st.session_state.user_input
         st.session_state.user_input = ""
-        # Don't try to clear the image upload field directly
-        if "image_upload" in st.session_state:
-            del st.session_state["image_upload"]
+        st.session_state.should_clear_upload = True
 
 def handle_error(error: Exception):
     """Handle errors gracefully"""
