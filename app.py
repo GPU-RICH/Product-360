@@ -339,7 +339,7 @@ def render_user_form():
                     crop_type=crop_type
                 )
                 
-                if user_manager.save_user_info(user_info):
+                if st.session_state.user_manager.save_user_info(user_info):
                     st.session_state.user_info = user_info
                     st.sidebar.success(UI_TEXT["form_success"])
                 else:
