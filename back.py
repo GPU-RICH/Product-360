@@ -12,6 +12,7 @@ import json
 import PIL.Image
 from PIL import Image
 import io
+import base64
 
 
 @dataclass
