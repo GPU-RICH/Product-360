@@ -3,11 +3,8 @@ from typing import List, Dict, Any, Optional
 import asyncio
 from PIL import Image
 import io
-import base64
-import logging
-from functools import partial
 from back import (ChatConfig, ChatLogger, ChatMemory, QuestionGenerator, 
-                 GeminiRAG, ProductDatabase, UserManager, UserInfo)
+                  GeminiRAG, ProductDatabase, UserManager, UserInfo)
 
 # Product Configuration
 PRODUCT_CONFIG = {
@@ -104,12 +101,7 @@ def init_session_state():
         st.session_state.show_suggestions = False
     if 'selected_product' not in st.session_state:
         st.session_state.selected_product = list(PRODUCT_CONFIG.keys())[0]
-    if 'should_clear_upload' not in st.session_state:
-        st.session_state.should_clear_upload = False
-    if 'loading' not in st.session_state:
-        st.session_state.loading = False
-    if 'needs_rerun' not in st.session_state:
-        st.session_state.needs_rerun = False
+
 
 # Configure the page
 st.set_page_config(
@@ -166,17 +158,10 @@ st.markdown("""
     background-color: #f5f5f5;
     border-radius: 10px;
 }
-.loading-spinner {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    margin: 20px 0;
-}
 </style>
 """, unsafe_allow_html=True)
 
-async def display_product_suggestions():
-    """Display product suggestions in sidebar"""
+def display_product_suggestions():
     if st.session_state.show_suggestions:
         st.sidebar.markdown("---")
         st.sidebar.markdown(f"### {UI_TEXT['suggestions_title']}")
@@ -187,7 +172,7 @@ async def display_product_suggestions():
                 st.image(suggestion['image'], caption=suggestion['name'], use_column_width=True)
                 st.markdown(f"**{suggestion['name']}**")
                 st.markdown("---")
-
+                    
 # Initialize components
 @st.cache_resource
 def initialize_components():
@@ -203,8 +188,8 @@ def initialize_components():
         st.error(f"Error initializing components: {str(e)}")
         raise e
 
-async def load_initial_database():
-    """Load the default product database asynchronously"""
+def load_initial_database():
+    """Load the default product database"""
     if not st.session_state.initialized:
         try:
             config, logger, question_gen, rag, user_manager = initialize_components()
@@ -214,9 +199,7 @@ async def load_initial_database():
             db = ProductDatabase(config)
             with open(markdown_file, "r", encoding="utf-8") as f:
                 markdown_content = f.read()
-            
-            # Properly await the markdown processing
-            await db.process_markdown(markdown_content)
+            db.process_markdown(markdown_content)
             
             st.session_state.db = db
             st.session_state.config = config
@@ -228,35 +211,30 @@ async def load_initial_database():
             
         except Exception as e:
             st.error(f"Error loading initial database: {str(e)}")
-            logging.error(f"Error loading initial database: {str(e)}", exc_info=True)
             return None
-
-async def load_new_database(product_name: str):
+def load_new_database(product_name: str):
     """Load a new product database when product selection changes"""
     try:
         markdown_file = PRODUCT_CONFIG[product_name]['markdown_file']
         db = ProductDatabase(st.session_state.config)
         with open(markdown_file, "r", encoding="utf-8") as f:
             markdown_content = f.read()
-            
-        # Properly await the markdown processing
-        await db.process_markdown(markdown_content)
+        db.process_markdown(markdown_content)
         st.session_state.db = db
     except Exception as e:
         st.error(f"डेटाबेस लोड करने में त्रुटि: {str(e)}")
 
-async def on_product_change():
-    """Handle product selection change asynchronously"""
-    await load_new_database(st.session_state.selected_product)
+def on_product_change():
+    """Handle product selection change"""
+    load_new_database(st.session_state.selected_product)
     st.session_state.messages = []
-    await st.session_state.chat_memory.clear_history()
+    st.session_state.chat_memory.clear_history()
     st.session_state.message_counter = 0
 
 async def process_question(question: str, image: Optional[bytes] = None):
-    """Process a question and update the chat state asynchronously"""
+    """Process a question and update the chat state"""
     try:
-        st.session_state.loading = True
-        relevant_docs = await st.session_state.db.search(question)
+        relevant_docs = st.session_state.db.search(question)
         context = st.session_state.rag.create_context(relevant_docs)
         answer = await st.session_state.rag.get_answer(
             question, 
@@ -265,15 +243,14 @@ async def process_question(question: str, image: Optional[bytes] = None):
             image
         )
         
-        # Generate follow-up questions
         follow_up_questions = await st.session_state.question_gen.generate_questions(
             question, 
             answer,
             st.session_state.user_info
         )
         
-        await st.session_state.chat_memory.add_interaction(question, answer)
-        await st.session_state.logger.log_interaction(
+        st.session_state.chat_memory.add_interaction(question, answer)
+        st.session_state.logger.log_interaction(
             question, 
             answer,
             st.session_state.user_info
@@ -297,14 +274,10 @@ async def process_question(question: str, image: Optional[bytes] = None):
             "questions": follow_up_questions,
             "message_id": st.session_state.message_counter
         })
-        
-        st.session_state.loading = False
-        
     except Exception as e:
         st.error(f"प्रश्न प्रोसेस करने में त्रुटि: {str(e)}")
-        st.session_state.loading = False
 
-async def render_user_form():
+def render_user_form():
     """Render the user information form in the sidebar"""
     st.sidebar.title(UI_TEXT["sidebar_title"])
     
@@ -327,8 +300,7 @@ async def render_user_form():
                     crop_type=crop_type
                 )
                 
-                success = await st.session_state.user_manager.save_user_info(user_info)
-                if success:
+                if user_manager.save_user_info(user_info):
                     st.session_state.user_info = user_info
                     st.sidebar.success(UI_TEXT["form_success"])
                 else:
@@ -336,80 +308,20 @@ async def render_user_form():
             else:
                 st.sidebar.warning(UI_TEXT["form_required"])
 
-async def process_messages():
-    """Process submitted questions asynchronously"""
-    if st.session_state.submitted_question:
-        image_bytes = None
-        if "uploaded_file" in st.session_state:
-            uploaded_file = st.session_state.uploaded_file
-            if uploaded_file is not None:
-                try:
-                    image_bytes = uploaded_file.getvalue()
-                    content_type = uploaded_file.type
-                    if content_type not in ['image/jpeg', 'image/png']:
-                        st.error("कृपया केवल JPG या PNG छवियां अपलोड करें।")
-                        st.session_state.submitted_question = None
-                        return
-                    
-                    # Store the uploaded file in session state
-                    st.session_state.current_image = image_bytes
-                    
-                except Exception as e:
-                    st.error(f"छवि लोड करने में समस्या: {str(e)}")
-                    image_bytes = None
-
-        with st.spinner(UI_TEXT["image_processing"] if image_bytes else ""):
-            try:
-                await process_question(
-                    st.session_state.submitted_question,
-                    image_bytes
-                )
-            except Exception as e:
-                st.error(f"प्रश्न प्रोसेस करने में त्रुटि: {str(e)}")
-
-        # Clear the uploaded file after processing
-        if st.session_state.should_clear_upload:
-            st.session_state.uploaded_file = None
-            st.session_state.should_clear_upload = False
-            
-        st.session_state.submitted_question = None
-        st.session_state.message_counter += 1
-        # Instead of st.rerun(), set a flag to trigger rerun
-        st.session_state.needs_rerun = True
-
-def handle_submit():
-    """Handle the submission of user input"""
-    if st.session_state.user_input:
-        st.session_state.submitted_question = st.session_state.user_input
-        st.session_state.user_input = ""
-        st.session_state.should_clear_upload = True
-        # Set needs_rerun flag
-        st.session_state.needs_rerun = True
-
-async def main():
-    """Main application function with async support"""
+def main():
     # Initialize session state
     init_session_state()
-
-    # Add needs_rerun to session state if not present
-    if 'needs_rerun' not in st.session_state:
-        st.session_state.needs_rerun = False
     
-    # Check if we need to rerun at the start
-    if st.session_state.needs_rerun:
-        st.session_state.needs_rerun = False
-        st.rerun()
-      
     # Load initial database and components if not already initialized
     if not st.session_state.initialized:
-        await load_initial_database()
+        load_initial_database()
     
     # Product selection in sidebar
     st.sidebar.selectbox(
         UI_TEXT["product_select"],
         options=list(PRODUCT_CONFIG.keys()),
         key="selected_product",
-        on_change=lambda: asyncio.create_task(on_product_change())
+        on_change=on_product_change
     )
     
     # Add suggestions toggle at the top of sidebar
@@ -420,11 +332,11 @@ async def main():
     )
 
     # Render user form in sidebar
-    await render_user_form()
+    render_user_form()
     
     # Display product suggestions in sidebar if enabled
     if st.session_state.show_suggestions:
-        await display_product_suggestions()
+        display_product_suggestions()
 
     # Display product-specific title
     product_config = PRODUCT_CONFIG[st.session_state.selected_product]
@@ -438,7 +350,7 @@ async def main():
         cols = st.columns(2)
         for i, question in enumerate(UI_TEXT["initial_questions"]):
             if cols[i % 2].button(question, key=f"initial_{i}", use_container_width=True):
-                asyncio.create_task(process_question(question))
+                asyncio.run(process_question(question))
     
     # Display chat history
     for message in st.session_state.messages:
@@ -464,8 +376,7 @@ async def main():
                 unsafe_allow_html=True
             )
             
-            # Display follow-up questions
-            if "questions" in message and message["questions"]:
+            if message.get("questions"):
                 cols = st.columns(2)
                 for i, question in enumerate(message["questions"]):
                     if cols[i % 2].button(
@@ -473,15 +384,7 @@ async def main():
                         key=f"followup_{message['message_id']}_{i}",
                         use_container_width=True
                     ):
-                        asyncio.create_task(process_question(question))
-    
-    # Display loading spinner
-    if st.session_state.loading:
-        with st.container():
-            st.markdown(
-                '<div class="loading-spinner">⌛ प्रोसेसिंग...</div>',
-                unsafe_allow_html=True
-            )
+                        asyncio.run(process_question(question))
     
     # Input area with image upload
     with st.container():
@@ -491,12 +394,11 @@ async def main():
                 "अपनी छवि यहाँ डालें",
                 type=['png', 'jpg', 'jpeg'],
                 help=UI_TEXT["image_helper"],
-                key=f"image_upload_{st.session_state.message_counter}"
+                key="image_upload"
             )
             
             if uploaded_file:
                 try:
-                    st.session_state.uploaded_file = uploaded_file
                     image = Image.open(uploaded_file)
                     st.image(image, caption="अपलोड की गई छवि", use_column_width=True)
                 except Exception as e:
@@ -512,20 +414,47 @@ async def main():
         
         # Process submitted question
         if st.session_state.submitted_question:
-            asyncio.create_task(process_messages())
-      
+            image_bytes = None
+            if uploaded_file is not None:
+                try:
+                    image_bytes = uploaded_file.getvalue()
+                except Exception as e:
+                    st.error("छवि प्रोसेस करने में समस्या हुई। कृपया दूसरी छवि आज़माएं।")
+            
+            with st.spinner(UI_TEXT["image_processing"] if image_bytes else ""):
+                asyncio.run(process_question(
+                    st.session_state.submitted_question,
+                    image_bytes
+                ))
+            
+            st.session_state.submitted_question = None
+            # Clear the image uploader
+            st.session_state.image_upload = None
+            st.rerun()
+        
         # Chat controls
         cols = st.columns([4, 1])
         
         # Clear chat button
-        if cols[1].button(UI_TEXT["clear_chat"], use_container_width=True):
-            st.session_state.messages = []
-            asyncio.create_task(st.session_state.chat_memory.clear_history())
-            st.session_state.message_counter = 0
-            st.session_state.should_clear_upload = True
-            st.rerun()
+    if cols[1].button(UI_TEXT["clear_chat"], use_container_width=True):
+        st.session_state.messages = []
+        st.session_state.chat_memory.clear_history()
+        st.session_state.message_counter = 0
+        # Safely remove the image upload key if it exists
+        if "image_upload" in st.session_state:
+            del st.session_state["image_upload"]
+        st.rerun()
 
-async def handle_error(error: Exception):
+def handle_submit():
+    """Handle the submission of user input"""
+    if st.session_state.user_input:
+        st.session_state.submitted_question = st.session_state.user_input
+        st.session_state.user_input = ""
+        # Don't try to clear the image upload field directly
+        if "image_upload" in st.session_state:
+            del st.session_state["image_upload"]
+
+def handle_error(error: Exception):
     """Handle errors gracefully"""
     error_messages = {
         "generic": "एक त्रुटि हुई। कृपया पुनः प्रयास करें।",
@@ -547,8 +476,4 @@ async def handle_error(error: Exception):
     logging.error(f"Error in app: {str(error)}")
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except Exception as e:
-        st.error(f"Application error: {str(e)}")
-        logging.error(f"Application error: {str(e)}", exc_info=True)
+    main()
