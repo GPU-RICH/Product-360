@@ -444,27 +444,29 @@ class CustomEmbeddings(Embeddings):
         self.model.to(device)
         self._lock = asyncio.Lock()
         
-    async def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        """Embed documents asynchronously"""
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        """Synchronous embed documents method required by FAISS"""
+        with torch.no_grad():
+            embeddings = self.model.encode(texts, convert_to_tensor=True)
+            return embeddings.cpu().numpy().tolist()
+            
+    def embed_query(self, text: str) -> List[float]:
+        """Synchronous embed query method required by FAISS"""
+        with torch.no_grad():
+            embedding = self.model.encode([text], convert_to_tensor=True)
+            return embedding.cpu().numpy().tolist()[0]
+    
+    async def aembed_documents(self, texts: List[str]) -> List[List[float]]:
+        """Async version of embed_documents"""
         async with self._lock:
-            def process_embeddings():
-                with torch.no_grad():
-                    embeddings = self.model.encode(texts, convert_to_tensor=True)
-                    return embeddings.cpu().numpy().tolist()
-            
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, process_embeddings)
+            return await loop.run_in_executor(None, self.embed_documents, texts)
             
-    async def embed_query(self, text: str) -> List[float]:
-        """Embed query asynchronously"""
+    async def aembed_query(self, text: str) -> List[float]:
+        """Async version of embed_query"""
         async with self._lock:
-            def process_embedding():
-                with torch.no_grad():
-                    embedding = self.model.encode([text], convert_to_tensor=True)
-                    return embedding.cpu().numpy().tolist()[0]
-            
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, process_embedding)
+            return await loop.run_in_executor(None, self.embed_query, text)
 
 class ProductDatabase:
     """Handles document storage and retrieval"""
@@ -501,18 +503,21 @@ class ProductDatabase:
                 texts = [doc["content"] for doc in documents]
                 metadatas = [{"section": doc["section"]} for doc in documents]
                 
-                # Process embeddings asynchronously
-                embeddings = await self.embeddings.embed_documents(texts)
-                
-                def create_vectorstore():
+                def create_vectorstore(texts, metadatas):
                     return FAISS.from_texts(
                         texts=texts,
                         embedding=self.embeddings,
                         metadatas=metadatas
                     )
                 
+                # Run FAISS creation in thread pool
                 loop = asyncio.get_event_loop()
-                self.vectorstore = await loop.run_in_executor(None, create_vectorstore)
+                self.vectorstore = await loop.run_in_executor(
+                    None,
+                    create_vectorstore,
+                    texts,
+                    metadatas
+                )
                 
             except Exception as e:
                 raise Exception(f"Error processing markdown content: {str(e)}")
