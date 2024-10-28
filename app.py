@@ -399,69 +399,64 @@ def main():
                     ):
                         asyncio.run(process_question(question))
     
-    # In the input area section
+    # Input area with image upload
     with st.container():
-        # Image upload
+        # Add image upload
         uploaded_file = st.file_uploader(
             UI_TEXT["image_upload"],
             type=['png', 'jpg', 'jpeg'],
-            help=UI_TEXT["image_helper"]
+            help=UI_TEXT["image_helper"],
+            key="image_upload"
         )
         
         if uploaded_file:
             try:
                 image = Image.open(uploaded_file)
                 st.image(image, caption="अपलोड की गई छवि", use_column_width=True)
-                image_bytes = uploaded_file.getvalue()
             except Exception as e:
-                st.error("छवि लोड करने में समस्या हुई।")
-                image_bytes = None
-        else:
+                st.error("छवि लोड करने में समस्या हुई। कृपया दूसरी छवि आज़माएं।")
+        
+        # Text input with submit button
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            question = st.text_input(
+                UI_TEXT["input_label"],
+                key="user_input",
+                placeholder=UI_TEXT["input_placeholder"]
+            )
+        with col2:
+            submit = st.button("भेजें")
+        
+        
+        # Process input when submitted
+        if submit or (question and question != st.session_state.get("last_question", "")):
             image_bytes = None
-        
-        # Text input
-        question = st.text_input(
-            UI_TEXT["input_label"],
-            key="user_input",
-            placeholder=UI_TEXT["input_placeholder"]
-        )
-        
-        if question:
-            asyncio.run(process_question(question, image_bytes))
-            st.session_state.user_input = ""
             if uploaded_file:
-                st.session_state.uploaded_file = None
-            st.rerun()
-        
-        # Process submitted question
-        if st.session_state.submitted_question:
-            image_bytes = None
-            if uploaded_file is not None:
                 try:
                     image_bytes = uploaded_file.getvalue()
                 except Exception as e:
-                    st.error("छवि प्रोसेस करने में समस्या हुई। कृपया दूसरी छवि आज़माएं।")
+                    st.error("छवि प्रोसेस करने में समस्या हुई।")
             
-            with st.spinner(UI_TEXT["image_processing"] if image_bytes else ""):
-                asyncio.run(process_question(
-                    st.session_state.submitted_question,
-                    image_bytes
-                ))
+            if question:
+                with st.spinner("प्रोसेस कर रहे हैं..."):
+                    asyncio.run(process_question(question, image_bytes))
+                    st.session_state.last_question = question
+                    st.session_state.user_input = ""
+                    st.session_state.image_upload = None
+                st.rerun()
             
-            st.session_state.submitted_question = None
-            # Clear the image uploader
-            st.session_state.image_upload = None
-            st.rerun()
         
         # Chat controls
         cols = st.columns([4, 1])
         
         # Clear chat button
-        if cols[1].button(UI_TEXT["clear_chat"], use_container_width=True):
+        if st.button(UI_TEXT["clear_chat"]):
             st.session_state.messages = []
             st.session_state.chat_memory.clear_history()
             st.session_state.message_counter = 0
             st.session_state.image_upload = None
+            st.session_state.last_question = ""
+            st.session_state.user_input = ""
             st.rerun()
 
 def handle_submit():
