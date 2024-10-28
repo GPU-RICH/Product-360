@@ -170,7 +170,6 @@ Keep the language simple and farmer-friendly. Format each question on a new line
             return self.default_questions
 
 class ImageProcessor:
-    """Handles image processing and analysis using Gemini"""
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
         self.generation_config = {
@@ -179,9 +178,8 @@ class ImageProcessor:
             "top_k": 64,
             "max_output_tokens": 8192,
         }
-        # Change to gemini-pro-vision model
         self.model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
+            model_name="gemini-1.5-flash",  # Changed from gemini-1.5-flash to gemini-pro-vision
             generation_config=self.generation_config
         )
     
@@ -192,11 +190,12 @@ class ImageProcessor:
         user_info: Optional[UserInfo] = None
     ) -> str:
         try:
+            if not image:
+                return "कोई छवि नहीं मिली। कृपया एक छवि अपलोड करें।"
+
             # Validate image first
             if not await self.validate_image(image):
                 return "छवि का आकार या प्रारूप उपयुक्त नहीं है। कृपया 100x100 से 4096x4096 के बीच का आकार वाली JPG/PNG छवि अपलोड करें।"
-            
-            chat = self.model.start_chat(history=[])
             
             user_context = ""
             if user_info:
@@ -207,9 +206,6 @@ class ImageProcessor:
                 - फसल: {user_info.crop_type}
                 - उत्पाद खरीदा: {'हाँ' if user_info.has_purchased else 'नहीं'}
                 """
-            
-            # Convert bytes to base64 if needed
-            image_part = {"mime_type": "image/jpeg", "data": image}
             
             prompt = f"""कृपया इस छवि का विश्लेषण करें और किसान की मदद करें।
 
@@ -225,8 +221,8 @@ class ImageProcessor:
             5. उत्पाद कैसे मदद कर सकता है
             
             कृपया सरल हिंदी में जवाब दें जो एक किसान आसानी से समझ सके।"""
-            
-            response = chat.send_message([image_part, prompt])
+
+            response = await self.model.generate_content([image, prompt])
             
             if response and response.text:
                 return response.text
@@ -239,31 +235,6 @@ class ImageProcessor:
             logging.error(f"Error processing image query: {str(e)}")
             return f"छवि का विश्लेषण करने में समस्या हुई: {str(e)}। कृपया पुनः प्रयास करें।"
 
-    async def validate_image(self, image: bytes) -> bool:
-        """Validate if the image is suitable for analysis"""
-        try:
-            img = Image.open(io.BytesIO(image))
-            
-            # Check image format
-            if img.format not in ['JPEG', 'PNG']:
-                return False
-            
-            # Check dimensions
-            width, height = img.size
-            if width < 100 or height < 100:
-                return False
-            if width > 4096 or height > 4096:
-                return False
-            
-            # Convert to RGB if necessary
-            if img.mode not in ['RGB', 'RGBA']:
-                img = img.convert('RGB')
-            
-            return True
-            
-        except Exception as e:
-            logging.error(f"Image validation error: {str(e)}")
-            return False
 
 class GeminiRAG:
     def __init__(self, api_key: str):
@@ -275,7 +246,7 @@ class GeminiRAG:
             "max_output_tokens": 8192,
         }
         self.model = genai.GenerativeModel(
-            model_name="gemini-pro",
+            model_name="gemini-1.5-flash",
             generation_config=self.generation_config
         )
         self.image_processor = ImageProcessor(api_key)
@@ -297,8 +268,7 @@ class GeminiRAG:
         try:
             if image:
                 return await self.image_processor.process_image_query(image, question, user_info)
-        
-        try:
+            
             chat = self.model.start_chat(history=[])
             
             prompt = f"""You are an agricultural expert. Provide response in Hindi (Devanagari script).
