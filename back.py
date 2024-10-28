@@ -9,8 +9,10 @@ from langchain_core.embeddings import Embeddings
 import google.generativeai as genai
 from datetime import datetime
 import json
+import PIL.Image
 from PIL import Image
 import io
+
 
 @dataclass
 class UserInfo:
@@ -179,9 +181,9 @@ class ImageProcessor:
             "top_k": 64,
             "max_output_tokens": 8192,
         }
-        # Using gemini-pro-vision for image processing
+        # Use gemini-pro-vision model for image processing
         self.model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
+            model_name="gemini-pro-vision",  # IMPORTANT: Changed to vision model
             generation_config=self.generation_config
         )
     
@@ -225,16 +227,11 @@ class ImageProcessor:
                 return "छवि का आकार या प्रारूप उपयुक्त नहीं है। कृपया 100x100 से 4096x4096 के बीच का आकार वाली JPG/PNG छवि अपलोड करें।"
             
             # Convert bytes to PIL Image
-            img = Image.open(io.BytesIO(image))
+            img = PIL.Image.open(io.BytesIO(image))
             
             # Ensure image is in RGB mode
             if img.mode != 'RGB':
                 img = img.convert('RGB')
-            
-            # Convert back to bytes in memory
-            img_byte_arr = io.BytesIO()
-            img.save(img_byte_arr, format='JPEG')
-            img_byte_arr = img_byte_arr.getvalue()
             
             user_context = ""
             if user_info:
@@ -261,21 +258,16 @@ class ImageProcessor:
             
             कृपया सरल हिंदी में जवाब दें जो एक किसान आसानी से समझ सके।"""
 
-            # Prepare image for Gemini
-            image_parts = {
-                "mime_type": "image/jpeg",
-                "data": img_byte_arr
-            }
-
-            # Generate response using Gemini vision model
+            # Generate response using direct content generation
             response = self.model.generate_content(
-                contents=[image_parts, prompt],
+                [img, prompt]  # Pass image directly along with prompt
             )
-
-            if response and response.text:
-                return response.text
-            else:
+            
+            if not response:
                 raise ValueError("No response received from Gemini")
+            
+            response.resolve()  # Ensure response is fully resolved
+            return response.text
             
         except genai.types.generation_types.BlockedPromptException:
             logging.error("Blocked prompt exception")
