@@ -103,11 +103,6 @@ def init_session_state():
         st.session_state.selected_product = list(PRODUCT_CONFIG.keys())[0]
     if 'should_clear_upload' not in st.session_state:
         st.session_state.should_clear_upload = False
-    if 'uploaded_file' not in st.session_state:
-        st.session_state.uploaded_file = None
-    if 'current_image' not in st.session_state:
-        st.session_state.current_image = None
-
 
 # Configure the page
 st.set_page_config(
