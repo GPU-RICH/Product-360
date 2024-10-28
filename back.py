@@ -199,7 +199,7 @@ class ImageProcessor:
                 किसान की जानकारी:
                 - नाम: {user_info.name}
                 - स्थान: {user_info.location}
-                - फसल: {user_info.crop_type}
+                - ग्राहक प्रतिक्रिया: {user_info.crop_type}
                 - उत्पाद खरीदा: {'हाँ' if user_info.has_purchased else 'नहीं'}
                 """
             
@@ -284,7 +284,7 @@ class GeminiRAG:
             {f'''किसान की जानकारी:
             - नाम: {user_info.name}
             - स्थान: {user_info.location}
-            - फसल: {user_info.crop_type}
+            - ग्राहक प्रतिक्रिया: {user_info.crop_type}
             - उत्पाद खरीदा: {'हाँ' if user_info.has_purchased else 'नहीं'}''' if user_info else ''}
             
             प्रश्न: {question}
