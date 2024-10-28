@@ -392,7 +392,7 @@ def main():
         cols = st.columns(2)
         for i, question in enumerate(UI_TEXT["initial_questions"]):
             if cols[i % 2].button(question, key=f"initial_{i}", use_container_width=True):
-                asyncio.run(process_question(question))
+                process_question(question)  # No async/await here
     
     # Display chat history
     for message in st.session_state.messages:
@@ -426,7 +426,7 @@ def main():
                         key=f"followup_{message['message_id']}_{i}",
                         use_container_width=True
                     ):
-                        asyncio.run(process_question(question))
+                        process_question(question)
     
     # Input area with image upload
     with st.container():
