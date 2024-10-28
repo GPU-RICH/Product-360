@@ -228,7 +228,7 @@ class ImageProcessor:
             logging.error(f"Image validation error: {str(e)}")
             return False
 
-    async def process_image_query(
+    def process_image_query(
         self,
         image: bytes,
         query: str,
@@ -300,8 +300,8 @@ class ImageProcessor:
                 }
             ]
 
-            # Generate response - use await here because generate_content might be async
-            response = await self.model.generate_content(contents)
+            # Generate response (synchronous call)
+            response = self.model.generate_content(contents)
             
             if response and response.text:
                 return response.text
@@ -339,7 +339,7 @@ class GeminiRAG:
             context_parts.append(f"Section: {doc['metadata']['section']}\n{doc['content']}")
         return "\n\n".join(context_parts)
     
-    async def get_answer(
+    def get_answer(
         self, 
         question: str, 
         context: str,
@@ -349,7 +349,7 @@ class GeminiRAG:
         try:
             # If image is provided, use image processor
             if image:
-                return await self.image_processor.process_image_query(
+                return self.image_processor.process_image_query(
                     image=image,
                     query=question,
                     user_info=user_info,
@@ -378,12 +378,13 @@ class GeminiRAG:
             4. तकनीकी शब्दों को समझाएं
             5. समाधान और सर्वोत्तम प्रथाओं पर ध्यान दें"""
             
-            response = await chat.send_message(prompt)
+            response = chat.send_message(prompt)
             return response.text
             
         except Exception as e:
             logging.error(f"Error in get_answer: {str(e)}", exc_info=True)
             return "क्षमा करें, तकनीकी त्रुटि हुई। कृपया पुनः प्रयास करें।"
+
 
 class CustomEmbeddings(Embeddings):
     """Custom embeddings using SentenceTransformer"""
