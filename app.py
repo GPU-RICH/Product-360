@@ -100,8 +100,7 @@ def init_session_state():
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
-
-          
+      
 # Configure the page
 st.set_page_config(
     page_title="Product Assistant",
@@ -435,11 +434,22 @@ def main():
             
             with st.spinner("प्रोसेस कर रहे हैं..."):
                 asyncio.run(process_question(question, image_bytes))
+                # Store the processed question in session state
+                if 'processed_questions' not in st.session_state:
+                    st.session_state.processed_questions = set()
+                st.session_state.processed_questions.add(question)
             
-            # Clear form and force update
+            # Clear the form using a rerun flag
+            if 'need_rerun' not in st.session_state:
+                st.session_state.need_rerun = True
+                st.rerun()
+        
+        # Handle rerun cleanup
+        if 'need_rerun' in st.session_state and st.session_state.need_rerun:
+            st.session_state.need_rerun = False
             st.session_state.user_input = ""
-            st.session_state.image_upload = None
-            st.rerun()
+            if 'image_upload' in st.session_state:
+                st.session_state.image_upload = None
         
         # Clear chat controls
         cols = st.columns([4, 1])
@@ -448,6 +458,8 @@ def main():
             st.session_state.chat_memory.clear_history()
             st.session_state.message_counter = 0
             st.session_state.image_upload = None
+            if 'processed_questions' in st.session_state:
+                st.session_state.processed_questions = set()
             st.session_state.user_input = ""
             st.rerun()
 
