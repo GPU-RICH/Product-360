@@ -181,9 +181,9 @@ class ImageProcessor:
             "top_k": 64,
             "max_output_tokens": 8192,
         }
-        # Use gemini-pro-vision model for image processing
+        # Using gemini-pro-vision for image processing
         self.model = genai.GenerativeModel(
-            model_name="gemini-pro-vision",  # IMPORTANT: Changed to vision model
+            model_name="gemini-1.5-flash",
             generation_config=self.generation_config
         )
     
@@ -206,6 +206,21 @@ class ImageProcessor:
                 logging.warning(f"Image too large: {width}x{height}")
                 return False
             
+            # Ensure the image can be converted to RGB
+            if img.mode not in ['RGB', 'RGBA']:
+                try:
+                    img = img.convert('RGB')
+                except Exception as e:
+                    logging.error(f"Failed to convert image to RGB: {str(e)}")
+                    return False
+            
+            # Check file size (max 4MB)
+            img_byte_arr = io.BytesIO()
+            img.save(img_byte_arr, format='JPEG' if img.format == 'JPEG' else 'PNG')
+            if len(img_byte_arr.getvalue()) > 4 * 1024 * 1024:
+                logging.warning("Image file size too large")
+                return False
+            
             return True
             
         except Exception as e:
@@ -216,8 +231,10 @@ class ImageProcessor:
         self,
         image: bytes,
         query: str,
-        user_info: Optional[UserInfo] = None
+        user_info: Optional[UserInfo] = None,
+        context: str = ""
     ) -> str:
+        """Process image-based queries with proper error handling and validation"""
         try:
             if not image:
                 return "कोई छवि नहीं मिली। कृपया एक छवि अपलोड करें।"
@@ -227,7 +244,7 @@ class ImageProcessor:
                 return "छवि का आकार या प्रारूप उपयुक्त नहीं है। कृपया 100x100 से 4096x4096 के बीच का आकार वाली JPG/PNG छवि अपलोड करें।"
             
             # Convert bytes to PIL Image
-            img = PIL.Image.open(io.BytesIO(image))
+            img = Image.open(io.BytesIO(image))
             
             # Ensure image is in RGB mode
             if img.mode != 'RGB':
@@ -247,6 +264,9 @@ class ImageProcessor:
             
             {user_context}
             
+            संदर्भ जानकारी:
+            {context}
+            
             किसान का प्रश्न: {query}
             
             कृपया इन बिंदुओं पर ध्यान दें:
@@ -254,27 +274,45 @@ class ImageProcessor:
             2. संभावित कारण
             3. तत्काल समाधान
             4. भविष्य में बचाव के उपाय
-            5. उत्पाद कैसे मदद कर सकता है
+            5. क्या उत्पाद इसमें मदद कर सकता है
             
             कृपया सरल हिंदी में जवाब दें जो एक किसान आसानी से समझ सके।"""
 
-            # Generate response using direct content generation
-            response = self.model.generate_content(
-                [img, prompt]  # Pass image directly along with prompt
-            )
+            # Convert image to bytes for API
+            img_byte_arr = io.BytesIO()
+            img.save(img_byte_arr, format='JPEG')
+            img_byte_arr = img_byte_arr.getvalue()
+
+            # Prepare content for the model
+            contents = [
+                {
+                    "parts": [
+                        {"text": prompt},
+                        {
+                            "inline_data": {
+                                "mime_type": "image/jpeg",
+                                "data": base64.b64encode(img_byte_arr).decode('utf-8')
+                            }
+                        }
+                    ]
+                }
+            ]
+
+            # Generate response
+            response = self.model.generate_content(contents)
             
-            if not response:
+            if response and response.text:
+                return response.text
+            else:
                 raise ValueError("No response received from Gemini")
-            
-            response.resolve()  # Ensure response is fully resolved
-            return response.text
             
         except genai.types.generation_types.BlockedPromptException:
             logging.error("Blocked prompt exception")
             return "छवि में कुछ अनुपयुक्त सामग्री पाई गई। कृपया केवल फसल या खेती संबंधित छवियां अपलोड करें।"
         except Exception as e:
             logging.error(f"Error processing image query: {str(e)}", exc_info=True)
-            return f"छवि का विश्लेषण करने में समस्या हुई। कृपया दूसरी छवि के साथ पुनः प्रयास करें।"
+            return f"छवि का विश्लेषण करने में समस्या हुई। कृपया दूसरी छवि के साथ पुनः प्रयास करें। त्रुटि: {str(e)}"
+
 
 
 
@@ -287,17 +325,19 @@ class GeminiRAG:
             "top_k": 64,
             "max_output_tokens": 8192,
         }
-        
-        # Initialize models
-        self.text_model = genai.GenerativeModel(
+        self.model = genai.GenerativeModel(
             model_name="gemini-1.5-flash",
             generation_config=self.generation_config
         )
-        self.vision_model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            generation_config=self.generation_config
-        )
-        
+        self.image_processor = ImageProcessor(api_key)
+    
+    def create_context(self, relevant_docs: List[Dict[str, Any]]) -> str:
+            """Creates a context string from relevant documents"""
+            context_parts = []
+            for doc in relevant_docs:
+                context_parts.append(f"Section: {doc['metadata']['section']}\n{doc['content']}")
+            return "\n\n".join(context_parts)
+    
     async def get_answer(
         self, 
         question: str, 
@@ -306,78 +346,44 @@ class GeminiRAG:
         image: Optional[bytes] = None
     ) -> str:
         try:
-            # If image is provided, use vision model
+            # If image is provided, use image processor
             if image:
-                # Convert bytes to PIL Image and ensure RGB mode
-                img = Image.open(io.BytesIO(image))
-                if img.mode != 'RGB':
-                    img = img.convert('RGB')
-                
-                # Prepare user context
-                user_context = ""
-                if user_info:
-                    user_context = f"""
-                    किसान की जानकारी:
-                    - नाम: {user_info.name}
-                    - स्थान: {user_info.location}
-                    - फसल: {user_info.crop_type}
-                    - उत्पाद खरीदा: {'हाँ' if user_info.has_purchased else 'नहीं'}
-                    """
-                
-                # Create prompt for image analysis
-                prompt = f"""आप एक कृषि विशेषज्ञ हैं। कृपया इस छवि का विश्लेषण करें और किसान की मदद करें।
-                
-                {user_context}
-                
-                संदर्भ जानकारी:
-                {context}
-                
-                किसान का प्रश्न: {question}
-                
-                कृपया इन बिंदुओं पर ध्यान दें:
-                1. छवि में दिखाई दे रही समस्या का विस्तृत विवरण
-                2. संभावित कारण
-                3. तत्काल समाधान
-                4. भविष्य में बचाव के उपाय
-                5. क्या उत्पाद इसमें मदद कर सकता है
-                
-                कृपया सरल हिंदी में जवाब दें जो एक किसान आसानी से समझ सके।"""
-
-                # Create combined content parts
-                contents = [
-                    {
-                        "mime_type": "image/jpeg",
-                        "data": image
-                    },
-                    prompt
-                ]
-                
-                # Generate response using vision model
-                response = self.vision_model.generate_content(contents)
-                return response.text if response and response.text else "छवि का विश्लेषण करने में समस्या हुई।"
+                return await self.image_processor.process_image_query(
+                    image=image,
+                    query=question,
+                    user_info=user_info,
+                    context=context
+                )
             
-            # Text-only query uses text model
-            else:
-                chat = self.text_model.start_chat(history=[])
-                prompt = f"""You are an agricultural expert. Provide response in Hindi (Devanagari script).
+            # Text-only query processing
+            chat = self.model.start_chat(history=[])
+            prompt = f"""You are an agricultural expert. Provide response in Hindi (Devanagari script).
 
-                संदर्भ जानकारी:
-                {context}
-                
-                {f'''किसान की जानकारी:
-                - नाम: {user_info.name}
-                - स्थान: {user_info.location}
-                - फसल: {user_info.crop_type}
-                - उत्पाद खरीदा: {'हाँ' if user_info.has_purchased else 'नहीं'}''' if user_info else ''}
-                
-                प्रश्न: {question}"""
-                
-                response = chat.send_message(prompt)
-                return response.text
-                
+            संदर्भ जानकारी:
+            {context}
+            
+            {f'''किसान की जानकारी:
+            - नाम: {user_info.name}
+            - स्थान: {user_info.location}
+            - फसल: {user_info.crop_type}
+            - उत्पाद खरीदा: {'हाँ' if user_info.has_purchased else 'नहीं'}''' if user_info else ''}
+            
+            प्रश्न: {question}
+            
+            निर्देश:
+            1. विशिष्ट और व्यावहारिक सलाह दें
+            2. सरल किसान-हितैषी भाषा का प्रयोग करें
+            3. जहाँ उपयुक्त हो उदाहरण दें
+            4. तकनीकी शब्दों को समझाएं
+            5. समाधान और सर्वोत्तम प्रथाओं पर ध्यान दें"""
+            
+            response = chat.send_message(prompt)
+            return response.text
+            
         except Exception as e:
             logging.error(f"Error in get_answer: {str(e)}", exc_info=True)
             return "क्षमा करें, तकनीकी त्रुटि हुई। कृपया पुनः प्रयास करें।"
+
 
 class CustomEmbeddings(Embeddings):
     """Custom embeddings using SentenceTransformer"""
