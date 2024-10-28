@@ -240,7 +240,7 @@ class ImageProcessor:
                 return "कोई छवि नहीं मिली। कृपया एक छवि अपलोड करें।"
 
             # Validate image first
-            if not await self.validate_image(image):
+            if not self.validate_image(image):
                 return "छवि का आकार या प्रारूप उपयुक्त नहीं है। कृपया 100x100 से 4096x4096 के बीच का आकार वाली JPG/PNG छवि अपलोड करें।"
             
             # Convert bytes to PIL Image
