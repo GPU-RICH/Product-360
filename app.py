@@ -3,6 +3,7 @@ from typing import List, Dict, Any, Optional
 import asyncio
 from PIL import Image
 import io
+import base64
 from back import (ChatConfig, ChatLogger, ChatMemory, QuestionGenerator, 
                  GeminiRAG, ProductDatabase, UserManager, UserInfo)
 
