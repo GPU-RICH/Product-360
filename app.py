@@ -421,19 +421,36 @@ def main():
             image_bytes = None
             if uploaded_file is not None:
                 try:
+                    # Read image bytes
                     image_bytes = uploaded_file.getvalue()
+                    
+                    # Validate format
+                    content_type = uploaded_file.type
+                    if content_type not in ['image/jpeg', 'image/png']:
+                        st.error("कृपया केवल JPG या PNG छवियां अपलोड करें।")
+                        st.session_state.submitted_question = None
+                        return
+                    
                 except Exception as e:
-                    st.error("छवि प्रोसेस करने में समस्या हुई। कृपया दूसरी छवि आज़माएं।")
+                    st.error(f"छवि लोड करने में समस्या: {str(e)}")
+                    image_bytes = None
             
             with st.spinner(UI_TEXT["image_processing"] if image_bytes else ""):
-                asyncio.run(process_question(
-                    st.session_state.submitted_question,
-                    image_bytes
-                ))
+                try:
+                    response = await process_question(
+                        st.session_state.submitted_question,
+                        image_bytes
+                    )
+                    if "समस्या हुई" in response:
+                        st.error(response)
+                    else:
+                        # Continue with normal message processing...
+                        st.session_state.messages.append(...)
+                except Exception as e:
+                    st.error(f"प्रश्न प्रोसेस करने में त्रुटि: {str(e)}")
             
             st.session_state.submitted_question = None
             st.session_state.message_counter += 1
-            st.session_state.should_clear_upload = True
             st.rerun()
         
         # Chat controls
