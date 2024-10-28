@@ -179,6 +179,7 @@ class ImageProcessor:
             "top_k": 64,
             "max_output_tokens": 8192,
         }
+        # Change to gemini-pro-vision model
         self.model = genai.GenerativeModel(
             model_name="gemini-1.5-flash",
             generation_config=self.generation_config
@@ -191,6 +192,10 @@ class ImageProcessor:
         user_info: Optional[UserInfo] = None
     ) -> str:
         try:
+            # Validate image first
+            if not await self.validate_image(image):
+                return "छवि का आकार या प्रारूप उपयुक्त नहीं है। कृपया 100x100 से 4096x4096 के बीच का आकार वाली JPG/PNG छवि अपलोड करें।"
+            
             chat = self.model.start_chat(history=[])
             
             user_context = ""
@@ -203,40 +208,59 @@ class ImageProcessor:
                 - उत्पाद खरीदा: {'हाँ' if user_info.has_purchased else 'नहीं'}
                 """
             
+            # Convert bytes to base64 if needed
             image_part = {"mime_type": "image/jpeg", "data": image}
             
-            prompt = f"""You are an expert agricultural consultant. Analyze the image and provide response in Hindi (Devanagari script).
-            
+            prompt = f"""कृपया इस छवि का विश्लेषण करें और किसान की मदद करें।
+
             {user_context}
             
             किसान का प्रश्न: {query}
             
-            इन बिंदुओं पर ध्यान दें:
-            1. दिखाई देने वाली समस्याओं की पहचान
-            2. व्यावहारिक समाधान
-            3. उत्पाद कैसे मदद कर सकता है
-            4. रोकथाम के उपाय
-            5. तत्काल करने योग्य कदम
+            कृपया इन बिंदुओं पर ध्यान दें:
+            1. छवि में दिखाई दे रही समस्या का विस्तृत विवरण
+            2. संभावित कारण
+            3. तत्काल समाधान
+            4. भविष्य में बचाव के उपाय
+            5. उत्पाद कैसे मदद कर सकता है
             
-            सरल भाषा में एक संक्षिप्त और स्पष्ट जवाब दें।"""
+            कृपया सरल हिंदी में जवाब दें जो एक किसान आसानी से समझ सके।"""
             
-            response = chat.send_message([image_part, prompt]).text
-            return response
+            response = chat.send_message([image_part, prompt])
             
+            if response and response.text:
+                return response.text
+            else:
+                raise ValueError("No response received from Gemini")
+            
+        except genai.types.generation_types.BlockedPromptException:
+            return "छवि में कुछ अनुपयुक्त सामग्री पाई गई। कृपया केवल फसल या खेती संबंधित छवियां अपलोड करें।"
         except Exception as e:
             logging.error(f"Error processing image query: {str(e)}")
-            return "क्षमा करें, छवि का विश्लेषण करने में समस्या हुई। कृपया पुनः प्रयास करें।"
+            return f"छवि का विश्लेषण करने में समस्या हुई: {str(e)}। कृपया पुनः प्रयास करें।"
 
     async def validate_image(self, image: bytes) -> bool:
         """Validate if the image is suitable for analysis"""
         try:
             img = Image.open(io.BytesIO(image))
+            
+            # Check image format
+            if img.format not in ['JPEG', 'PNG']:
+                return False
+            
+            # Check dimensions
             width, height = img.size
             if width < 100 or height < 100:
                 return False
             if width > 4096 or height > 4096:
                 return False
+            
+            # Convert to RGB if necessary
+            if img.mode not in ['RGB', 'RGBA']:
+                img = img.convert('RGB')
+            
             return True
+            
         except Exception as e:
             logging.error(f"Image validation error: {str(e)}")
             return False
@@ -251,7 +275,7 @@ class GeminiRAG:
             "max_output_tokens": 8192,
         }
         self.model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
+            model_name="gemini-pro",
             generation_config=self.generation_config
         )
         self.image_processor = ImageProcessor(api_key)
@@ -270,8 +294,9 @@ class GeminiRAG:
         user_info: Optional[UserInfo] = None,
         image: Optional[bytes] = None
     ) -> str:
-        if image:
-            return await self.image_processor.process_image_query(image, question, user_info)
+        try:
+            if image:
+                return await self.image_processor.process_image_query(image, question, user_info)
         
         try:
             chat = self.model.start_chat(history=[])
