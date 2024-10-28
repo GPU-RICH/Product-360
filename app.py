@@ -82,26 +82,7 @@ UI_TEXT = {
     ]
 }
 
-# # Initialize session state
-# def init_session_state():
-#     """Initialize all session state variables"""
-#     defaults = {
-#         'initialized': False,
-#         'chat_memory': ChatMemory(),
-#         'messages': [],
-#         'message_counter': 0,
-#         'processed_questions': set(),
-#         'need_rerun': False,
-#         'user_info': None,
-#         'show_suggestions': False,
-#         'selected_product': list(PRODUCT_CONFIG.keys())[0]
-#     }
-    
-#     for key, value in defaults.items():
-#         if key not in st.session_state:
-#             st.session_state[key] = value
-
-
+# Initialize session state
 def init_session_state():
     """Initialize all session state variables"""
     defaults = {
@@ -109,6 +90,8 @@ def init_session_state():
         'chat_memory': ChatMemory(),
         'messages': [],
         'message_counter': 0,
+        'processed_questions': set(),
+        'need_rerun': False,
         'user_info': None,
         'show_suggestions': False,
         'selected_product': list(PRODUCT_CONFIG.keys())[0]
@@ -117,6 +100,7 @@ def init_session_state():
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
           
 # Configure the page
 st.set_page_config(
