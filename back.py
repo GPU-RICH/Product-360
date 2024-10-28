@@ -170,6 +170,7 @@ Keep the language simple and farmer-friendly. Format each question on a new line
             return self.default_questions
 
 class ImageProcessor:
+    """Handles image processing and analysis using Gemini"""
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
         self.generation_config = {
@@ -177,12 +178,35 @@ class ImageProcessor:
             "top_p": 0.95,
             "top_k": 64,
             "max_output_tokens": 8192,
+            "response_mime_type": "text/plain",
         }
         self.model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",  # Changed from gemini-1.5-flash to gemini-pro-vision
+            model_name="gemini-1.5-flash",
             generation_config=self.generation_config
         )
     
+    async def validate_image(self, image: bytes) -> bool:
+        """Validate if the image is suitable for analysis"""
+        try:
+            img = Image.open(io.BytesIO(image))
+            
+            # Check image format
+            if img.format not in ['JPEG', 'PNG']:
+                return False
+            
+            # Check dimensions
+            width, height = img.size
+            if width < 100 or height < 100:
+                return False
+            if width > 4096 or height > 4096:
+                return False
+            
+            return True
+            
+        except Exception as e:
+            logging.error(f"Image validation error: {str(e)}")
+            return False
+
     async def process_image_query(
         self,
         image: bytes,
@@ -197,6 +221,10 @@ class ImageProcessor:
             if not await self.validate_image(image):
                 return "छवि का आकार या प्रारूप उपयुक्त नहीं है। कृपया 100x100 से 4096x4096 के बीच का आकार वाली JPG/PNG छवि अपलोड करें।"
             
+            # Create a temporary file to upload
+            temp_image = io.BytesIO(image)
+            uploaded_image = genai.upload_file(temp_image, mime_type="image/jpeg")
+            
             user_context = ""
             if user_info:
                 user_context = f"""
@@ -207,9 +235,19 @@ class ImageProcessor:
                 - उत्पाद खरीदा: {'हाँ' if user_info.has_purchased else 'नहीं'}
                 """
             
+            chat = self.model.start_chat(
+                history=[
+                    {
+                        "role": "user",
+                        "parts": [
+                            uploaded_image,
+                            f"I am facing this issue with my crop.\n{user_context}"
+                        ],
+                    }
+                ]
+            )
+            
             prompt = f"""कृपया इस छवि का विश्लेषण करें और किसान की मदद करें।
-
-            {user_context}
             
             किसान का प्रश्न: {query}
             
@@ -222,7 +260,7 @@ class ImageProcessor:
             
             कृपया सरल हिंदी में जवाब दें जो एक किसान आसानी से समझ सके।"""
 
-            response = await self.model.generate_content([image, prompt])
+            response = chat.send_message(prompt)
             
             if response and response.text:
                 return response.text
