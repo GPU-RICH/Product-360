@@ -187,7 +187,7 @@ class ImageProcessor:
             generation_config=self.generation_config
         )
     
-    async def validate_image(self, image: bytes) -> bool:
+    def validate_image(self, image: bytes) -> bool:
         """Validate if the image is suitable for analysis"""
         try:
             img = Image.open(io.BytesIO(image))
