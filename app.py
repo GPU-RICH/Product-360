@@ -233,19 +233,19 @@ def on_product_change():
     st.session_state.chat_memory.clear_history()
     st.session_state.message_counter = 0
 
-async def process_question(question: str, image: Optional[bytes] = None):
+def process_question(question: str, image: Optional[bytes] = None):
     """Process a question and update the chat state"""
     try:
         relevant_docs = st.session_state.db.search(question)
         context = st.session_state.rag.create_context(relevant_docs)
-        answer = await st.session_state.rag.get_answer(
+        answer = st.session_state.rag.get_answer(
             question, 
             context,
             st.session_state.user_info,
             image
         )
         
-        follow_up_questions = await st.session_state.question_gen.generate_questions(
+        follow_up_questions = st.session_state.question_gen.generate_questions(
             question, 
             answer,
             st.session_state.user_info
@@ -310,8 +310,8 @@ def render_user_form():
             else:
                 st.sidebar.warning(UI_TEXT["form_required"])
 
-async def process_messages():
-    """Process submitted questions asynchronously"""
+def process_messages():
+    """Process submitted questions"""
     if st.session_state.submitted_question:
         image_bytes = None
         if "uploaded_file" in st.session_state:
@@ -334,7 +334,7 @@ async def process_messages():
 
         with st.spinner(UI_TEXT["image_processing"] if image_bytes else ""):
             try:
-                await process_question(
+                process_question(
                     st.session_state.submitted_question,
                     image_bytes
                 )
