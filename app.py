@@ -84,7 +84,7 @@ UI_TEXT = {
 
 # Initialize session state
 def init_session_state():
-    """Initialize all session state variables with default product"""
+    """Initialize all session state variables"""
     if 'initialized' not in st.session_state:
         st.session_state.initialized = False
     if 'chat_memory' not in st.session_state:
@@ -93,16 +93,15 @@ def init_session_state():
         st.session_state.messages = []
     if 'message_counter' not in st.session_state:
         st.session_state.message_counter = 0
-    if 'submitted_question' not in st.session_state:
-        st.session_state.submitted_question = None
+    if 'last_question' not in st.session_state:
+        st.session_state.last_question = ""
     if 'user_info' not in st.session_state:
         st.session_state.user_info = None
     if 'show_suggestions' not in st.session_state:
         st.session_state.show_suggestions = False
     if 'selected_product' not in st.session_state:
         st.session_state.selected_product = list(PRODUCT_CONFIG.keys())[0]
-
-
+      
 # Configure the page
 st.set_page_config(
     page_title="Product Assistant",
