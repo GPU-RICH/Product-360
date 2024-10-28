@@ -135,7 +135,7 @@ class QuestionGenerator:
             "क्या आप कीट नियंत्रण के अन्य तरीकों के बारे में जानना चाहेंगे?"
         ]
     
-    async def generate_questions(
+    def generate_questions(
         self, 
         question: str, 
         answer: str, 
@@ -157,10 +157,10 @@ Focus the questions on:
 
 Keep the language simple and farmer-friendly. Format each question on a new line."""
 
-            response = chat.send_message(prompt).text
+            response = chat.send_message(prompt)
             
             # Extract questions
-            questions = [q.strip() for q in response.split('\n') if q.strip()]
+            questions = [q.strip() for q in response.text.split('\n') if q.strip()]
             
             # Return default questions if we don't get exactly 4 valid questions
             if len(questions) != 4:
@@ -171,6 +171,7 @@ Keep the language simple and farmer-friendly. Format each question on a new line
         except Exception as e:
             logging.error(f"Error generating questions: {str(e)}")
             return self.default_questions
+
 
 class ImageProcessor:
     """Handles image processing and analysis using Gemini"""
