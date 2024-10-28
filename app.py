@@ -214,6 +214,8 @@ async def load_initial_database():
             db = ProductDatabase(config)
             with open(markdown_file, "r", encoding="utf-8") as f:
                 markdown_content = f.read()
+            
+            # Properly await the markdown processing
             await db.process_markdown(markdown_content)
             
             st.session_state.db = db
@@ -226,6 +228,7 @@ async def load_initial_database():
             
         except Exception as e:
             st.error(f"Error loading initial database: {str(e)}")
+            logging.error(f"Error loading initial database: {str(e)}", exc_info=True)
             return None
 
 async def load_new_database(product_name: str):
@@ -235,6 +238,8 @@ async def load_new_database(product_name: str):
         db = ProductDatabase(st.session_state.config)
         with open(markdown_file, "r", encoding="utf-8") as f:
             markdown_content = f.read()
+            
+        # Properly await the markdown processing
         await db.process_markdown(markdown_content)
         st.session_state.db = db
     except Exception as e:
