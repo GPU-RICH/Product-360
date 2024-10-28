@@ -4,7 +4,7 @@ import asyncio
 from PIL import Image
 import io
 from back import (ChatConfig, ChatLogger, ChatMemory, QuestionGenerator, 
-                  GeminiRAG, ProductDatabase, UserManager, UserInfo)
+                 GeminiRAG, ProductDatabase, UserManager, UserInfo)
 
 # Product Configuration
 PRODUCT_CONFIG = {
