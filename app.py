@@ -108,6 +108,8 @@ def init_session_state():
         st.session_state.should_clear_upload = False
     if 'loading' not in st.session_state:
         st.session_state.loading = False
+    if 'needs_rerun' not in st.session_state:
+        st.session_state.needs_rerun = False
 
 # Configure the page
 st.set_page_config(
@@ -367,7 +369,8 @@ async def process_messages():
             
         st.session_state.submitted_question = None
         st.session_state.message_counter += 1
-        st.rerun()
+        # Instead of st.rerun(), set a flag to trigger rerun
+        st.session_state.needs_rerun = True
 
 def handle_submit():
     """Handle the submission of user input"""
@@ -375,12 +378,23 @@ def handle_submit():
         st.session_state.submitted_question = st.session_state.user_input
         st.session_state.user_input = ""
         st.session_state.should_clear_upload = True
+        # Set needs_rerun flag
+        st.session_state.needs_rerun = True
 
 async def main():
     """Main application function with async support"""
     # Initialize session state
     init_session_state()
+
+    # Add needs_rerun to session state if not present
+    if 'needs_rerun' not in st.session_state:
+        st.session_state.needs_rerun = False
     
+    # Check if we need to rerun at the start
+    if st.session_state.needs_rerun:
+        st.session_state.needs_rerun = False
+        st.rerun()
+      
     # Load initial database and components if not already initialized
     if not st.session_state.initialized:
         await load_initial_database()
