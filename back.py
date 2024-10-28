@@ -240,7 +240,8 @@ class ImageProcessor:
                 return "कोई छवि नहीं मिली। कृपया एक छवि अपलोड करें।"
 
             # Validate image first
-            if not self.validate_image(image):
+            is_valid = self.validate_image(image)
+            if not is_valid:
                 return "छवि का आकार या प्रारूप उपयुक्त नहीं है। कृपया 100x100 से 4096x4096 के बीच का आकार वाली JPG/PNG छवि अपलोड करें।"
             
             # Convert bytes to PIL Image
@@ -298,8 +299,8 @@ class ImageProcessor:
                 }
             ]
 
-            # Generate response
-            response = self.model.generate_content(contents)
+            # Generate response - use await here because generate_content might be async
+            response = await self.model.generate_content(contents)
             
             if response and response.text:
                 return response.text
@@ -312,7 +313,6 @@ class ImageProcessor:
         except Exception as e:
             logging.error(f"Error processing image query: {str(e)}", exc_info=True)
             return f"छवि का विश्लेषण करने में समस्या हुई। कृपया दूसरी छवि के साथ पुनः प्रयास करें। त्रुटि: {str(e)}"
-
 
 
 
@@ -332,11 +332,11 @@ class GeminiRAG:
         self.image_processor = ImageProcessor(api_key)
     
     def create_context(self, relevant_docs: List[Dict[str, Any]]) -> str:
-            """Creates a context string from relevant documents"""
-            context_parts = []
-            for doc in relevant_docs:
-                context_parts.append(f"Section: {doc['metadata']['section']}\n{doc['content']}")
-            return "\n\n".join(context_parts)
+        """Creates a context string from relevant documents"""
+        context_parts = []
+        for doc in relevant_docs:
+            context_parts.append(f"Section: {doc['metadata']['section']}\n{doc['content']}")
+        return "\n\n".join(context_parts)
     
     async def get_answer(
         self, 
@@ -377,13 +377,12 @@ class GeminiRAG:
             4. तकनीकी शब्दों को समझाएं
             5. समाधान और सर्वोत्तम प्रथाओं पर ध्यान दें"""
             
-            response = chat.send_message(prompt)
+            response = await chat.send_message(prompt)
             return response.text
             
         except Exception as e:
             logging.error(f"Error in get_answer: {str(e)}", exc_info=True)
             return "क्षमा करें, तकनीकी त्रुटि हुई। कृपया पुनः प्रयास करें।"
-
 
 class CustomEmbeddings(Embeddings):
     """Custom embeddings using SentenceTransformer"""
