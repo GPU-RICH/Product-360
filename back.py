@@ -125,86 +125,49 @@ class QuestionGenerator:
             generation_config=self.generation_config
         )
         
-        # Product-specific default questions
-        self.product_questions = {
-            "GAPL STARTER 1KG": [
-                "इस उत्पाद को कब इस्तेमाल करना सबसे अच्छा रहेगा?",
-                "क्या उत्पाद के इस्तेमाल के बाद आपने कोई परिणाम देखा है?",
-                "क्या आपको अपनी फसल पर इसे लगाने को लेकर कोई चिंता है?",
-                "क्या आप कीट नियंत्रण के अन्य तरीकों के बारे में जानना चाहेंगे?"
-            ],
-            "ENTOKILL 250ML": [
-                "इस उत्पाद को कब इस्तेमाल करना सबसे अच्छा रहेगा?",
-                "क्या उत्पाद के इस्तेमाल के बाद आपने कोई परिणाम देखा है?",
-                "क्या आपको अपनी फसल पर इसे लगाने को लेकर कोई चिंता है?",
-                "क्या आप कीट नियंत्रण के अन्य तरीकों के बारे में जानना चाहेंगे?"
-            ],
-            "DEHAAT KHURAK 3000": [
-                "क्या आपके पशु की दूध उत्पादन क्षमता में कोई बदलाव आया है?",
-                "क्या आपके पशु के स्वास्थ्य में कोई सुधार दिखा है?",
-                "क्या आप पशु आहार की दैनिक मात्रा के बारे में जानना चाहेंगे?",
-                "क्या आप पशु के लिए पोषण संबंधी अन्य सुझाव चाहेंगे?"
-            ],
-            "DOODH PLUS": [
-                "क्या आपके पशु के दूध की गुणवत्ता में सुधार हुआ है?",
-                "क्या आप दूध में वसा की मात्रा बढ़ाने के तरीके जानना चाहेंगे?",
-                "क्या आपको पशु के स्वास्थ्य में कोई विशेष बदलाव दिखा है?",
-                "क्या आप पशु आहार में और क्या सुधार कर सकते हैं?"
-            ]
-        }
-        
-        # Default fallback questions if product not found
         self.default_questions = [
             "इस उत्पाद को कब इस्तेमाल करना सबसे अच्छा रहेगा?",
             "क्या उत्पाद के इस्तेमाल के बाद आपने कोई परिणाम देखा है?",
-            "क्या आपको इसे लगाने को लेकर कोई चिंता है?",
-            "क्या आप अन्य सुझाव जानना चाहेंगे?"
+            "क्या आपको अपनी फसल पर इसे लगाने को लेकर कोई चिंता है?",
+            "क्या आप कीट नियंत्रण के अन्य तरीकों के बारे में जानना चाहेंगे?"
         ]
     
     async def generate_questions(
         self, 
         question: str, 
         answer: str, 
-        user_info: Optional[UserInfo] = None,
-        product_name: str = None
+        user_info: Optional[UserInfo] = None
     ) -> List[str]:
-        """Generate follow-up questions based on the conversation and product"""
+        """Generate follow-up questions based on the conversation"""
         try:
             chat = self.model.start_chat(history=[])
-            
-            # If product-specific questions are available, use those as fallback
-            default_questions = self.product_questions.get(product_name, self.default_questions)
-            
-            prompt = f"""Generate 4 simple, practical follow-up questions in Hindi (Devanagari script) based on this conversation with a {'farmer' if product_name in ['GAPL STARTER 1KG', 'ENTOKILL 250ML'] else 'cattle owner'}:
+            prompt = f"""Generate 4 simple, practical follow-up questions in Hindi (Devanagari script) based on this conversation with a farmer:
 
 Question: {question}
 Answer: {answer}
 
 Focus the questions on:
-{'''1. समय और उपयोग (Timing and usage)
+1. समय और उपयोग (Timing and usage)
 2. परिणाम और प्रभावशीलता (Results and effectiveness)
 3. सुरक्षा संबंधी चिंताएं (Safety concerns)
-4. अतिरिक्त सिफारिशें (Additional recommendations)''' if product_name in ['GAPL STARTER 1KG', 'ENTOKILL 250ML'] else '''1. दूध उत्पादन और गुणवत्ता (Milk production and quality)
-2. पशु स्वास्थ्य (Animal health)
-3. आहार और पोषण (Feed and nutrition)
-4. देखभाल संबंधी सुझाव (Care recommendations)'''}
+4. अतिरिक्त सिफारिशें (Additional recommendations)
 
-Keep the language simple and user-friendly. Format each question on a new line."""
+Keep the language simple and farmer-friendly. Format each question on a new line."""
 
             response = chat.send_message(prompt).text
             
             # Extract questions
             questions = [q.strip() for q in response.split('\n') if q.strip()]
             
-            # Return product-specific default questions if we don't get exactly 4 valid questions
+            # Return default questions if we don't get exactly 4 valid questions
             if len(questions) != 4:
-                return default_questions
+                return self.default_questions
             
             return questions
             
         except Exception as e:
             logging.error(f"Error generating questions: {str(e)}")
-            return self.product_questions.get(product_name, self.default_questions)
+            return self.default_questions
 
 class ImageProcessor:
     """Handles image processing and analysis using Gemini"""
