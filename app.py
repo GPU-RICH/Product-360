@@ -475,7 +475,7 @@ def main():
                     ):
                         asyncio.run(process_question(question))
     
-    #Imput
+    # Input area with image upload and form
     with st.container():
         # Add image upload
         uploaded_file = st.file_uploader(
@@ -512,14 +512,19 @@ def main():
             
             with st.spinner("🔄 आपका संदेश प्रोसेस किया जा रहा है..."):
                 asyncio.run(process_question(question, image_bytes))
-                # Store the processed question in session state
                 if 'processed_questions' not in st.session_state:
                     st.session_state.processed_questions = set()
                 st.session_state.processed_questions.add(question)
-                
-                # Set a flag to trigger rerun
-                st.session_state.trigger_rerun = True
                 st.rerun()
+
+      # And modify the clear chat button handler:
+      if cols[1].button(UI_TEXT["clear_chat"], use_container_width=True):
+          st.session_state.messages = []
+          st.session_state.chat_memory.clear_history()
+          st.session_state.message_counter = 0
+          if 'processed_questions' in st.session_state:
+              st.session_state.processed_questions = set()
+          st.rerun()
         
         # Handle rerun cleanup
         if 'need_rerun' in st.session_state and st.session_state.need_rerun:
