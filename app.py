@@ -374,12 +374,6 @@ def render_user_form():
 def main():
     # Initialize session state
     init_session_state()
-
-    # Handle rerun after form submission
-    if 'trigger_rerun' in st.session_state and st.session_state.trigger_rerun:
-        st.session_state.trigger_rerun = False
-        if 'image_upload' in st.session_state:
-            st.session_state.image_upload = None
     
     # Load initial database and components if not already initialized
     if not st.session_state.initialized:
@@ -411,7 +405,6 @@ def main():
     product_config = PRODUCT_CONFIG[st.session_state.selected_product]
     st.title(product_config['title'])
 
-    # Add video section after title
     # Add video section after title
     if "video_url" in product_config:
         st.subheader(UI_TEXT["video_title"])
@@ -516,22 +509,6 @@ def main():
                     st.session_state.processed_questions = set()
                 st.session_state.processed_questions.add(question)
                 st.rerun()
-
-      # And modify the clear chat button handler:
-      if cols[1].button(UI_TEXT["clear_chat"], use_container_width=True):
-          st.session_state.messages = []
-          st.session_state.chat_memory.clear_history()
-          st.session_state.message_counter = 0
-          if 'processed_questions' in st.session_state:
-              st.session_state.processed_questions = set()
-          st.rerun()
-        
-        # Handle rerun cleanup
-        if 'need_rerun' in st.session_state and st.session_state.need_rerun:
-            st.session_state.need_rerun = False
-            st.session_state.user_input = ""
-            if 'image_upload' in st.session_state:
-                st.session_state.image_upload = None
         
         # Clear chat controls
         cols = st.columns([4, 1])
@@ -539,11 +516,10 @@ def main():
             st.session_state.messages = []
             st.session_state.chat_memory.clear_history()
             st.session_state.message_counter = 0
-            st.session_state.image_upload = None
             if 'processed_questions' in st.session_state:
                 st.session_state.processed_questions = set()
-            st.session_state.user_input = ""
             st.rerun()
+
 
 def handle_submit():
     """Handle the submission of user input"""
