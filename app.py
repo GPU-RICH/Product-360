@@ -279,10 +279,12 @@ async def process_question(question: str, image: Optional[bytes] = None):
                 image=None
             )
         
+        # Pass the selected product name to generate_questions
         follow_up_questions = await st.session_state.question_gen.generate_questions(
             question, 
             answer,
-            st.session_state.user_info
+            st.session_state.user_info,
+            st.session_state.selected_product  # Add this line
         )
         
         st.session_state.chat_memory.add_interaction(question, answer)
@@ -315,6 +317,7 @@ async def process_question(question: str, image: Optional[bytes] = None):
         
     except Exception as e:
         st.error(f"Error processing question: {str(e)}")
+
 
 def render_user_form():
     """Render the user information form in the sidebar"""
