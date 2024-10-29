@@ -119,7 +119,6 @@ UI_TEXT.update({
     "video_error": "वीडियो लोड करने में समस्या हुई। कृपया पुनः प्रयास करें।"
 })
 
-# Initialize session state
 def init_session_state():
     """Initialize all session state variables"""
     defaults = {
@@ -128,7 +127,7 @@ def init_session_state():
         'messages': [],
         'message_counter': 0,
         'processed_questions': set(),
-        'need_rerun': False,
+        'trigger_rerun': False,
         'user_info': None,
         'show_suggestions': False,
         'selected_product': list(PRODUCT_CONFIG.keys())[0]
@@ -375,6 +374,12 @@ def render_user_form():
 def main():
     # Initialize session state
     init_session_state()
+
+    # Handle rerun after form submission
+    if 'trigger_rerun' in st.session_state and st.session_state.trigger_rerun:
+        st.session_state.trigger_rerun = False
+        if 'image_upload' in st.session_state:
+            st.session_state.image_upload = None
     
     # Load initial database and components if not already initialized
     if not st.session_state.initialized:
@@ -470,7 +475,7 @@ def main():
                     ):
                         asyncio.run(process_question(question))
     
-    # Input area with image upload and form
+    #Imput
     with st.container():
         # Add image upload
         uploaded_file = st.file_uploader(
@@ -505,18 +510,16 @@ def main():
                 except Exception as e:
                     st.error("छवि प्रोसेस करने में समस्या हुई।")
             
-            with st.spinner("प्रोसेस कर रहे हैं..."):
+            with st.spinner("🔄 आपका संदेश प्रोसेस किया जा रहा है..."):
                 asyncio.run(process_question(question, image_bytes))
                 # Store the processed question in session state
                 if 'processed_questions' not in st.session_state:
                     st.session_state.processed_questions = set()
                 st.session_state.processed_questions.add(question)
-            
-            # Clear the form and force a rerun
-            st.session_state.user_input = ""
-            if 'image_upload' in st.session_state:
-                st.session_state.image_upload = None
-            st.rerun() 
+                
+                # Set a flag to trigger rerun
+                st.session_state.trigger_rerun = True
+                st.rerun()
         
         # Handle rerun cleanup
         if 'need_rerun' in st.session_state and st.session_state.need_rerun:
