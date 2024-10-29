@@ -141,7 +141,7 @@ class QuestionGenerator:
         """Generate follow-up questions based on the conversation"""
         try:
             chat = self.model.start_chat(history=[])
-            prompt = f"""Generate 4 simple, practical follow-up questions in Hindi (Devanagari script) based on this conversation with a farmer:
+            prompt = f"""Generate 4 simple, practical follow-up questions, that a farmer may ask, in Hindi (Devanagari script) based on this conversation with a farmer:
 
 Question: {question}
 Answer: {answer}
