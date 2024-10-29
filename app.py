@@ -7,6 +7,8 @@ from back import (ChatConfig, ChatLogger, ChatMemory, QuestionGenerator,
                   GeminiRAG, ProductDatabase, UserManager, UserInfo)
 
 # Product Configuration
+# In APP.PY, update the PRODUCT_CONFIG dictionary:
+
 PRODUCT_CONFIG = {
     "GAPL STARTER 1KG": {
         "markdown_file": "STARTER.md",
@@ -16,6 +18,12 @@ PRODUCT_CONFIG = {
             {"image": "INNO_AG.webp", "name": "INNO AG Stimgo MGR 1 Kg"},
             {"image": "IFFCO.webp", "name": "IFFCO Sagarika Bucket 10 Kg"},
             {"image": "ORGA.webp", "name": "ORGANIC PDM 50 Kg"}
+        ],
+        "initial_questions": [
+            "उत्पाद के मुख्य लाभ क्या हैं?",
+            "उत्पाद का प्रयोग कैसे करें?",
+            "उत्पाद किन फसलों के लिए उपयुक्त है?",
+            "अनुशंसित मात्रा क्या है?"
         ]
     },
     "ENTOKILL 250ML": {
@@ -26,6 +34,12 @@ PRODUCT_CONFIG = {
             {"image": "paras-npk.webp", "name": "PARAS NPK 12:32:16 50 Kg"},
             {"image": "mosaic.webp", "name": "MOSAIC MOP 50 Kg"},
             {"image": "paras_dap.webp", "name": "PARAS DAP 50 Kg"}
+        ],
+        "initial_questions": [
+            "उत्पाद के मुख्य लाभ क्या हैं?",
+            "उत्पाद का प्रयोग कैसे करें?",
+            "उत्पाद किन फसलों के लिए उपयुक्त है?",
+            "अनुशंसित मात्रा क्या है?"
         ]
     },
     "DEHAAT KHURAK 3000": {
@@ -36,6 +50,12 @@ PRODUCT_CONFIG = {
             {"image": "doodh_plus.webp", "name": "Doodh Plus 5 Kg"},
             {"image": "balance.webp", "name": "DEHAAT BALANCE DIET 25 KG"},
             {"image": "vetnoliv.webp", "name": "Vetnoliv 1 L"}
+        ],
+        "initial_questions": [
+            "इस फीड का इस्तेमाल करने से दूध उत्पादन में कितनी वृद्धि होगी?",
+            "क्या यह फीड गर्भवती पशुओं के लिए सुरक्षित है?",
+            "पशु को प्रतिदिन कितनी मात्रा में फीड देना चाहिए?",
+            "क्या इस फीड से पशु के स्वास्थ्य में कोई और सुधार होगा?"
         ]
     },
     "DOODH PLUS": {
@@ -46,10 +66,15 @@ PRODUCT_CONFIG = {
             {"image": "doodh_khurak.webp", "name": "DeHaat Khurak 5000 45 Kg"},
             {"image": "vetnocal.webp", "name": "Vetnocal Gold 5 L"},
             {"image": "kriya.webp", "name": "KriyaPro"}
+        ],
+        "initial_questions": [
+            "दूध प्लस के नियमित इस्तेमाल से दूध की गुणवत्ता में क्या सुधार होगा?",
+            "क्या यह उत्पाद पशु की प्रजनन क्षमता में सुधार करता है?",
+            "इस उत्पाद को किस प्रकार खिलाना चाहिए?",
+            "क्या इससे दूध में फैट की मात्रा बढ़ेगी?"
         ]
     }
 }
-
 # UI Text in Hindi
 UI_TEXT = {
     "welcome_message": """
@@ -402,9 +427,12 @@ def main():
     if not st.session_state.messages:
         st.markdown(UI_TEXT["welcome_message"].format(product=st.session_state.selected_product))
         
-        # Display initial questions as buttons
+        # Display product-specific initial questions as buttons
+        product_config = PRODUCT_CONFIG[st.session_state.selected_product]
+        initial_questions = product_config["initial_questions"]
+        
         cols = st.columns(2)
-        for i, question in enumerate(UI_TEXT["initial_questions"]):
+        for i, question in enumerate(initial_questions):
             if cols[i % 2].button(question, key=f"initial_{i}", use_container_width=True):
                 asyncio.run(process_question(question))
     
