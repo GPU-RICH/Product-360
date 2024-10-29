@@ -512,10 +512,11 @@ def main():
                     st.session_state.processed_questions = set()
                 st.session_state.processed_questions.add(question)
             
-            # Clear the form using a rerun flag
-            if 'need_rerun' not in st.session_state:
-                st.session_state.need_rerun = True
-                st.rerun()
+            # Clear the form and force a rerun
+            st.session_state.user_input = ""
+            if 'image_upload' in st.session_state:
+                st.session_state.image_upload = None
+            st.rerun() 
         
         # Handle rerun cleanup
         if 'need_rerun' in st.session_state and st.session_state.need_rerun:
