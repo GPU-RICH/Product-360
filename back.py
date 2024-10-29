@@ -122,7 +122,8 @@ class QuestionGenerator:
         }
         self.model = genai.GenerativeModel(
             model_name="gemini-1.5-flash",
-            generation_config=self.generation_config
+            generation_config=self.generation_config,
+            safety_settings={'HATE': 'BLOCK_NONE','HARASSMENT': 'BLOCK_NONE','SEXUAL' : 'BLOCK_NONE','DANGEROUS' : 'BLOCK_NONE'}
         )
         
         self.default_questions = [
@@ -181,7 +182,8 @@ class ImageProcessor:
         }
         self.model = genai.GenerativeModel(
             model_name="gemini-1.5-flash",
-            generation_config=self.generation_config
+            generation_config=self.generation_config,
+            safety_settings={'HATE': 'BLOCK_NONE','HARASSMENT': 'BLOCK_NONE','SEXUAL' : 'BLOCK_NONE','DANGEROUS' : 'BLOCK_NONE'}
         )
     
     async def process_image_query(
@@ -252,7 +254,8 @@ class GeminiRAG:
         }
         self.model = genai.GenerativeModel(
             model_name="gemini-1.5-flash",
-            generation_config=self.generation_config
+            generation_config=self.generation_config,
+            safety_settings={'HATE': 'BLOCK_NONE','HARASSMENT': 'BLOCK_NONE','SEXUAL' : 'BLOCK_NONE','DANGEROUS' : 'BLOCK_NONE'}
         )
         self.image_processor = ImageProcessor(api_key)
     
